@@ -1,0 +1,22 @@
+# SymbiYosys work directories (one per .sby basename) and any others
+formal/sync_fifo/
+formal/sync_fifo_bmc/
+formal/sync_fifo_prove/
+formal/sync_fifo_cover/
+formal/*/
+
+# Verilator
+obj_dir/
+obj_dir_*/
+*.o
+*.d
+
+# Waveforms / coverage (docs/waveforms/.gitkeep stays tracked; sim VCD ignored)
+*.vcd
+*.fst
+*.dat
+coverage.dat
+logfile.txt
+
+# macOS
+.DS_Store

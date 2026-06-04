@@ -1,0 +1,55 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  verify:
+    name: Lint / Synth / Formal BMC / Sim
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Install OSS CAD Suite (linux-x64, pinned 2026-06-04) ──────────────
+      - name: Install OSS CAD Suite
+        run: |
+          curl -L -o oss-cad-suite.tgz \
+            https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-06-04/oss-cad-suite-linux-x64-20260604.tgz
+          tar -xzf oss-cad-suite.tgz
+          echo "$PWD/oss-cad-suite/bin" >> $GITHUB_PATH
+
+      # ── CI gate steps ─────────────────────────────────────────────────────
+      - name: Lint (Verilator)
+        run: make lint
+
+      - name: Synthesise (Yosys)
+        run: make synth
+
+      - name: Formal — BMC depth 20 (gate)
+        run: make formal-bmc
+
+      - name: Simulate — Verilator TB depth 8 (gate)
+        run: make sim
+
+      # ── Informational — k-induction proof (may be slow) ──────────────────
+      - name: Formal — k-induction proof depth 30 (informational)
+        run: make formal-prove
+        continue-on-error: true
+
+      # ── Artefacts ─────────────────────────────────────────────────────────
+      - name: Upload formal BMC results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: formal-bmc-results
+          path: formal/sync_fifo_bmc/
+          if-no-files-found: warn
+
+      - name: Upload simulation VCD
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-waveform
+          path: docs/waveforms/sim_waves.vcd
+          if-no-files-found: warn

@@ -1,0 +1,17 @@
+[options]
+mode prove
+depth 15
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo.sv
+read -formal -DFORMAL sync_fifo_properties.sv
+read -formal -DFORMAL sync_fifo_formal_tb.sv
+prep -top sync_fifo_formal_tb
+
+[files]
+rtl/sync_fifo.sv
+rtl/sync_fifo_properties.sv
+formal/sync_fifo_formal_tb.sv
