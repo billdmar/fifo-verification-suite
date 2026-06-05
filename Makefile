@@ -57,7 +57,7 @@ formal-bmc:
 	$(ENV) sby -f $(BMC_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-prove : k-induction proof (depth 30) via SymbiYosys
+## formal-prove : k-induction proof (depth 15) via SymbiYosys
 formal-prove:
 	$(ENV) sby -f $(PROVE_SCR)
 

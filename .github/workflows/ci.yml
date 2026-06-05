@@ -33,7 +33,7 @@ jobs:
         run: make sim
 
       # ── Informational — k-induction proof (may be slow) ──────────────────
-      - name: Formal — k-induction proof depth 30 (informational)
+      - name: Formal — k-induction proof depth 15 (informational)
         run: make formal-prove
         continue-on-error: true
 

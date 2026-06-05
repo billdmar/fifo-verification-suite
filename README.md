@@ -190,7 +190,7 @@ Additional targets:
 
 ```sh
 make synth         # Yosys synthesis + area stats
-make formal-prove  # k-induction proof (depth 30, informational)
+make formal-prove  # k-induction proof (depth 15, informational)
 make sim DEPTH=64  # Simulation at a specific depth
 make sim-sweep     # Sweep DEPTHS="4 8 16 64 256"
 make sim-fault     # Fault-injection self-test (exits 0 only if checker fires)
