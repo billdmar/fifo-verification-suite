@@ -145,6 +145,16 @@ module sync_fifo_properties #(
     end
 
     // =========================================================================
+    // GROUP 6b — Almost-full / almost-empty threshold flags track count.
+    // =========================================================================
+    always @(posedge clk) begin
+        if (rst_n) begin
+            a_almost_full_iff:  assert (almost_full  == (count >= ALMOST_FULL_THRESH[ADDR_WIDTH:0]));
+            a_almost_empty_iff: assert (almost_empty == (count <= ALMOST_EMPTY_THRESH[ADDR_WIDTH:0]));
+        end
+    end
+
+    // =========================================================================
     // GROUP 7 — DATA ORDERING (per-slot integrity).
     //
     // Timing reasoning:

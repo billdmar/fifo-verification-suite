@@ -65,6 +65,7 @@
 #endif
 
 static constexpr int DEPTH           = DEPTH_PARAM;
+// DATA_WIDTH is fixed at 8 by the build matrix (the Makefile only varies DEPTH).
 static constexpr int DATA_WIDTH      = 8;   // default; DUT uses 8
 // Thresholds must match the DUT defaults: DEPTH-2 and 2
 static constexpr int ALMOST_FULL_TH  = DEPTH - 2;
