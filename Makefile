@@ -117,8 +117,7 @@ all: lint synth formal-bmc sim
 clean:
 	rm -rf obj_dir/ obj_dir_*/
 	rm -rf formal/sync_fifo_bmc/
-	rm -rf formal/sync_fifo_prove/
-	rm -rf formal/sync_fifo/
+	rm -rf formal/sync_fifo/       # prove script is sync_fifo.sby -> dir formal/sync_fifo/
 	rm -rf formal/sync_fifo_cover/
 	rm -f  *.vcd
 	rm -f  coverage.dat
