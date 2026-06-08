@@ -124,6 +124,11 @@ module sync_fifo_properties #(
 
     // =========================================================================
     // GROUP 6 — Count / flag consistency.
+    //   a_count_in_range    : count never exceeds DEPTH (0..DEPTH inclusive).
+    //   a_empty_iff_count_*  : empty/full flags agree with the count extremes,
+    //   a_full_iff_count_*     so a flag can never drift out of sync with count.
+    //   a_shadow_count      : the TB shadow pointers reproduce the DUT count,
+    //                         validating the port-observable pointer model.
     // =========================================================================
     always @(posedge clk) begin
         if (rst_n) begin

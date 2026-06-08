@@ -15,19 +15,19 @@
 //
 // Depth sweep:
 //   Run with different -GDEPTH= values (4, 8, 16, 64, 256).
-//   The testbench reads DEPTH at runtime from the Verilated model constant
-//   sync_fifo___024unit::DEPTH (exposed as a public param) – but Verilator
-//   does not always expose SV parameters as C++ constants automatically.
-//   Instead, we read it via the VL_IN/OUT macros or pass DEPTH as a
-//   compile-define (preferred).  Set -CFLAGS "-DDEPTH_PARAM=8" etc., OR
-//   the testbench uses a fallback via the Verilated model's 'count' output
-//   width.  The simplest portable approach used here: the Makefile passes
-//   -CFLAGS "-DDEPTH_PARAM=<N>" matching -GDEPTH=<N>.
+//   The DUT depth is fixed at build time by Verilator's -GDEPTH=<N> elaboration
+//   override; the C++ side learns the same value through the matching compile
+//   define -CFLAGS "-DDEPTH_PARAM=<N>" that the Makefile passes alongside it.
+//   (Verilator does not expose SV parameters as C++ constants reliably, so the
+//   compile define is the portable mechanism rather than reading the value back
+//   from the model.)  The single .cpp thus works for any depth without edits.
 //
 // Fault-injection self-test:
-//   Compile with -CFLAGS "-DINJECT_FAULT" to corrupt the golden model
-//   (swaps two expected pop values) so the scoreboard detects a mismatch
-//   and exits nonzero.  This validates the checker is not vacuously passing.
+//   Compile with -CFLAGS "-DINJECT_FAULT" to corrupt the golden model: every
+//   third accepted write has its value XORed with 0xFF before being pushed to
+//   the golden queue (see sample_transactions()).  The DUT stores the correct
+//   value, so the scoreboard detects the mismatch on read-back and main() exits
+//   nonzero.  This validates that the checker is not vacuously passing.
 //   Invoked via: make sim-fault
 //
 // Registered-output (1-cycle read latency) handling:
@@ -65,7 +65,9 @@
 #endif
 
 static constexpr int DEPTH           = DEPTH_PARAM;
-static constexpr int DATA_WIDTH      = 8;   // default; DUT uses 8
+// DATA_WIDTH is the DUT default (8) and is never overridden via -GDATA_WIDTH,
+// so the 8-bit golden-model bookkeeping below stays in lock-step with the DUT.
+static constexpr int DATA_WIDTH      = 8;
 // Thresholds must match the DUT defaults: DEPTH-2 and 2
 static constexpr int ALMOST_FULL_TH  = DEPTH - 2;
 static constexpr int ALMOST_EMPTY_TH = 2;
