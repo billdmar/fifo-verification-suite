@@ -10,6 +10,8 @@
 [![BMC](https://img.shields.io/badge/BMC-all_assertions_PASS-brightgreen?style=for-the-badge)]()
 [![CDC](https://img.shields.io/badge/CDC-async_FIFO_proven-blueviolet?style=for-the-badge)]()
 [![Coverage](https://img.shields.io/badge/Functional_coverage-10%2F10_bins-brightgreen?style=for-the-badge)]()
+[![AXI4-Stream](https://img.shields.io/badge/AXI4--Stream-protocol_proven-red?style=for-the-badge)]()
+[![FPGA](https://img.shields.io/badge/FPGA-ECP5_%2B_iCE40_real_P%26R-informational?style=for-the-badge)]()
 
 ---
 
@@ -22,9 +24,12 @@
 - **Verilator scoreboard** — 13 directed scenarios + a 120,000-cycle biased constrained-random run validated against a `std::queue` golden model
 - **Coverage closure** — 10/10 functional-coverage bins hit (enforced as a hard gate) plus 100% Verilator line/toggle/branch/expr coverage
 - **Fault-injection self-test** — `make sim-fault` proves the checker is not vacuous (scoreboard must catch an intentionally injected error)
+- **AXI4-Stream wrapper** — drop-in `axis_fifo` (tvalid/tready/tdata/tlast) with formal proof of protocol compliance: tvalid/tdata stable-until-accepted, no data loss under backpressure
+- **Real FPGA numbers** — actual Yosys + nextpnr place-and-route on **ECP5 (LFE5U-85F)** and **iCE40 (UP5K)** across the depth sweep, each labeled with the tool + part it came from ([docs/fpga_results.md](docs/fpga_results.md))
+- **Two linters as hard gates** — Verilator `-Wall` *and* Verible style lint, both clean
 - **Parameterizable DEPTH 4–1024** — depth sweep (4, 8, 16, 64, 256) all green in CI
-- **100% open-source toolchain** — OSS CAD Suite (Yosys 0.64, SymbiYosys 0.66, Verilator 5.049)
-- **Green GitHub Actions CI** — sync+async lint, synth, formal (BMC + liveness + CDC + cover), simulation, sweep, and coverage on every push
+- **100% open-source toolchain** — OSS CAD Suite (Yosys 0.64, SymbiYosys 0.66, Verilator 5.049) + Verible + nextpnr
+- **Green GitHub Actions CI** — lint (Verilator ×3 + Verible), synth, formal (sync BMC + liveness + CDC + AXI + cover), simulation, sweep, coverage, and an informational FPGA P&R sweep on every push
 
 ---
 
@@ -156,10 +161,12 @@ Reset is **synchronous**: `rst_n` is sampled on the rising clock edge.
 
 | Tool           | Version      | Notes                       |
 |----------------|--------------|-----------------------------|
-| Verilator      | 5.049        | Lint + simulation           |
-| Yosys          | 0.64         | Synthesis / elaboration     |
+| Verilator      | 5.049        | Lint + simulation + coverage |
+| Yosys          | 0.64         | Synthesis / elaboration / FPGA mapping |
 | SymbiYosys     | 0.66         | Formal verification front-end|
-| OSS CAD Suite  | 2026-06-04   | Bundles all of the above    |
+| nextpnr        | 0.10         | FPGA place-and-route (ecp5, ice40) |
+| Verible        | v0.0-4071    | SystemVerilog style/lint gate (`make lint-verible`); config in `.rules.verible_lint` |
+| OSS CAD Suite  | 2026-06-04   | Bundles Verilator/Yosys/SymbiYosys/nextpnr/solvers |
 | Solvers        | yices-smt2, boolector, z3, bitwuzla | Included in suite |
 
 Tested on **macOS (darwin-arm64)** locally; CI runs on **ubuntu-latest (linux-x64)**.
@@ -196,17 +203,22 @@ Additional targets:
 ```sh
 make synth              # Yosys synthesis + area stats
 make lint-async         # async (dual-clock) FIFO lint
+make lint-axis          # AXI4-Stream wrapper lint
+make lint-verible       # Verible style gate (local: VERIBLE=$HOME/verible/bin/verible-verilog-lint)
 make formal-live        # bounded liveness / progress (depth 20) — CI gate
 make formal-cover       # sync cover witnesses (depth 30) — CI gate
 make formal-prove       # sync k-induction proof (depth 15, informational)
 make formal-async-bmc   # async CDC BMC (depth 16, multiclock) — CI gate
 make formal-async-cover # async reachability covers — CI gate
 make formal-async-prove # async k-induction (informational, step open)
-make formal             # all sync + async formal gates
+make formal-axis-bmc    # AXI4-Stream protocol BMC (depth 20) — CI gate
+make formal-axis-cover  # AXI4-Stream cover witnesses — CI gate
+make formal             # all sync + async + AXI formal gates
 make sim DEPTH=64       # Simulation at a specific depth
 make sim-sweep          # Sweep DEPTHS="4 8 16 64 256"
 make sim-coverage       # Verilator line/toggle/branch/expr coverage report
 make sim-fault          # Fault-injection self-test (exits 0 only if checker fires)
+make fpga-report        # Real Yosys+nextpnr P&R sweep (ECP5 + iCE40)
 make clean              # Remove all build artefacts
 make help               # Show all targets
 ```
@@ -234,6 +246,8 @@ output via the `a_shadow_count` assertion.) Two SymbiYosys scripts run:
 | `formal/async_fifo_bmc.sby`     | bmc (multiclk)| 16    | CI gate — async CDC properties  |
 | `formal/async_fifo_cover.sby`   | cover         | 30    | CI gate — async reachability    |
 | `formal/async_fifo_prove.sby`   | prove (k-ind) | —     | Async induction (informational, step open) |
+| `formal/axis_fifo_bmc.sby`      | bmc           | 20    | CI gate — AXI4-Stream protocol compliance |
+| `formal/axis_fifo_cover.sby`    | cover         | 30    | CI gate — AXI handshake reachability |
 
 **On liveness:** true unbounded liveness (`mode live` / `s_eventually`) is not
 runnable on this OSS CAD Suite — SymbiYosys only accepts the `aiger suprove`
@@ -335,6 +349,58 @@ window for DEPTH=8 — plus cover reachability. Open-source formal models relati
 clock phase/rate (the functional CDC risk); it does not model analog
 metastability resolution — the `SYNC_STAGES` flops are that mitigation.
 
+#### AXI4-Stream wrapper (`axis_fifo`)
+
+`axis_fifo` wraps `sync_fifo` in a standard AXI4-Stream interface (slave sink →
+FIFO → master source). The 1-cycle registered read latency is absorbed by a
+1-deep output skid register so data is never dropped or duplicated under
+backpressure; `{tlast, tdata}` is buffered together so TLAST stays aligned.
+Properties are inlined under `` `ifdef FORMAL ``. Gate: `axis_fifo_bmc.sby`,
+**mode bmc, depth 20, yices**.
+
+| Property (assertion label)                      | Type   | BMC (d=20) |
+|-------------------------------------------------|--------|------------|
+| Master TVALID stable until accepted (`a_m_tvalid_stable`) | assert | ✅ PASS |
+| Master TDATA / TLAST stable while stalled (`a_m_tdata_stable`, `a_m_tlast_stable`) | assert | ✅ PASS |
+| No spurious valid — TVALID iff real data held (`a_no_spurious_valid`) | assert | ✅ PASS |
+| Slave handshake / no overflow (`a_tready_iff_room`, `a_no_push_when_full`) | assert | ✅ PASS |
+| Registered-latency skid invariants (`a_pop_excl`, `a_landing_slot`) | assert | ✅ PASS |
+| No data loss under backpressure (`a_no_pop_when_stalled`) | assert | ✅ PASS |
+| End-to-end `$anyconst` data/last integrity, no loss/dup (`a_e2e_data`, `a_e2e_last`) | assert | ✅ PASS |
+| Cover — deliver, stall-then-resume, tracked round-trip, TLAST out (4 covers) | cover | ✅ all REACHED |
+
+AXI properties are BMC-bounded at depth 20 on a DEPTH=8 harness (the repo's
+BMC-as-gate convention); no k-induction script for the wrapper.
+
+**AXI4-Stream ports** (`DATA_WIDTH` 1–63, `DEPTH` 4–1024 pow2):
+
+| Port | Dir | Width | Description |
+|------|-----|-------|-------------|
+| `s_axis_tvalid` | in  | 1 | Slave: input beat valid |
+| `s_axis_tready` | out | 1 | Slave: ready (= space available) |
+| `s_axis_tdata`  | in  | DATA_WIDTH | Slave: input payload |
+| `s_axis_tlast`  | in  | 1 | Slave: last-of-packet (buffered) |
+| `m_axis_tvalid` | out | 1 | Master: output beat valid |
+| `m_axis_tready` | in  | 1 | Master: downstream ready |
+| `m_axis_tdata`  | out | DATA_WIDTH | Master: output payload |
+| `m_axis_tlast`  | out | 1 | Master: last-of-packet |
+
+### FPGA synthesis & timing (real Yosys + nextpnr P&R)
+
+Actual place-and-route on two concrete Lattice parts across the depth sweep —
+full tables, tool versions, and caveats in **[docs/fpga_results.md](docs/fpga_results.md)**
+(`make fpga-report` to reproduce). Highlights (`DATA_WIDTH=8`, seed 1):
+
+| Part | DEPTH=8 Fmax | DEPTH=256 Fmax | mem→BRAM from | Tool |
+|------|--------------|----------------|---------------|------|
+| ECP5 LFE5U-85F (CABGA381) | 266.8 MHz | 221.3 MHz | DEPTH=256 | yosys 0.64 + nextpnr-ecp5 0.10 |
+| iCE40 UP5K (SG48)         | 59.2 MHz  | 72.7 MHz  | DEPTH=16  | yosys 0.64 + nextpnr-ice40 0.10 |
+
+All swept depths (4/8/16/64/256) fit on both parts; the design maps to
+distributed LUT RAM when shallow and to dedicated block RAM when deep with no
+source changes. These are **open-source-flow numbers, not vendor (Diamond/
+Radiant/Vivado) numbers** — see the doc for the full methodology.
+
 ### Simulation results (local, all gating CI)
 
 | DEPTH | Sim result | Functional coverage |
@@ -351,6 +417,9 @@ metastability resolution — the `SYNC_STAGES` flops are that mitigation.
 | `make sim-coverage` (Verilator line/toggle/branch/expr) | ✅ 100% / 100% / 100% / 100% |
 | Sync formal covers | ✅ all 10 REACHED |
 | Async formal covers | ✅ all 4 REACHED |
+| AXI formal covers | ✅ all 4 REACHED |
+| `make lint` / `lint-async` / `lint-axis` (Verilator) | ✅ all clean |
+| `make lint-verible` (Verible style gate) | ✅ exit 0 on all RTL |
 
 ---
 
@@ -362,6 +431,7 @@ sync-fifo-formal/
 │   └── workflows/
 │       └── ci.yml              # GitHub Actions CI
 ├── docs/
+│   ├── fpga_results.md        # Real ECP5 + iCE40 P&R area/timing tables
 │   └── waveforms/
 │       └── .gitkeep            # Placeholder; sim VCD written here
 ├── formal/
@@ -373,15 +443,21 @@ sync-fifo-formal/
 │   ├── async_fifo_bmc.sby      # async CDC BMC (depth 16, multiclock, CI gate)
 │   ├── async_fifo_cover.sby    # async reachability covers (CI gate)
 │   ├── async_fifo_prove.sby    # async k-induction (informational, step open)
-│   └── async_fifo_formal_tb.sv # async multi-clock formal harness
+│   ├── async_fifo_formal_tb.sv # async multi-clock formal harness
+│   ├── axis_fifo_bmc.sby       # AXI4-Stream protocol BMC (depth 20, CI gate)
+│   └── axis_fifo_cover.sby     # AXI4-Stream cover witnesses (CI gate)
 ├── rtl/
 │   ├── sync_fifo.sv            # DUT — parameterizable synchronous FIFO
 │   ├── sync_fifo_properties.sv # sync SVA properties (explicit-instantiation module)
-│   └── async_fifo.sv           # DUT — dual-clock CDC FIFO (Gray + synchronizers, inlined SVA)
+│   ├── async_fifo.sv           # DUT — dual-clock CDC FIFO (Gray + synchronizers, inlined SVA)
+│   └── axis_fifo.sv            # AXI4-Stream wrapper around sync_fifo (inlined SVA)
+├── scripts/
+│   └── fpga_report.sh         # Yosys + nextpnr P&R sweep (ECP5 + iCE40)
 ├── tb/
 │   └── tb_sync_fifo.cpp        # Verilator C++ TB + std::queue scoreboard (13 tests + coverage)
+├── .rules.verible_lint         # Verible style-lint config
 ├── LICENSE                     # MIT
-├── Makefile                    # Build, lint, formal, sim targets
+├── Makefile                    # Build, lint, formal, sim, fpga targets
 └── README.md                   # This file
 ```
 
