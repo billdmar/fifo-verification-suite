@@ -155,6 +155,52 @@ module sync_fifo_properties #(
     end
 
     // =========================================================================
+    // GROUP 6c — AUXILIARY INDUCTIVE INVARIANTS (k-induction strengthening).
+    //
+    //   The shadow pointers sf_wptr/sf_rptr are (ADDR_WIDTH+1)-bit free-running
+    //   counters with the extra-MSB wrap encoding (identical scheme to the DUT).
+    //   For k-induction these assertions pin the reachable state space so the
+    //   inductive hypothesis is strong enough; without them an unrolled induction
+    //   start state could place the pointers in a combination that is unreachable
+    //   in practice (e.g. count > DEPTH).  Each one is itself an inductive
+    //   invariant (true in every reachable state and preserved by one step), so
+    //   adding them does not weaken the proof — it only excludes garbage start
+    //   states that the bare hypothesis would otherwise admit.
+    //
+    //   a_aux_count_le_depth : the shadow occupancy (sf_wptr - sf_rptr) can never
+    //                          exceed DEPTH.  This is the core ring-buffer bound;
+    //                          it makes a_full_iff_count_depth / a_count_in_range
+    //                          inductive rather than only basecase-true.
+    //   a_aux_full_excl_empty: the shadow pointers can never simultaneously encode
+    //                          both full (MSB differ, low equal) and empty (equal),
+    //                          mirroring a_no_full_and_empty at the pointer level.
+    //   a_aux_shadow_empty   : shadow "equal pointers" iff DUT empty — ties the
+    //                          shadow model to the port-observable empty flag so
+    //                          the two cannot drift in an inductive start state.
+    //   a_aux_shadow_full    : shadow "MSB differ, low equal" iff DUT full — same
+    //                          tie for the full flag.
+    // =========================================================================
+    always @(posedge clk) begin
+        if (rst_n) begin
+            a_aux_count_le_depth: assert (
+                ((sf_wptr - sf_rptr) <= DEPTH[ADDR_WIDTH:0])
+            );
+            a_aux_full_excl_empty: assert (
+                !( (sf_wptr == sf_rptr) &&
+                   (sf_wptr[ADDR_WIDTH] != sf_rptr[ADDR_WIDTH]) &&
+                   (sf_wptr[ADDR_WIDTH-1:0] == sf_rptr[ADDR_WIDTH-1:0]) )
+            );
+            a_aux_shadow_empty: assert (
+                (sf_wptr == sf_rptr) == empty
+            );
+            a_aux_shadow_full: assert (
+                ( (sf_wptr[ADDR_WIDTH] != sf_rptr[ADDR_WIDTH]) &&
+                  (sf_wptr[ADDR_WIDTH-1:0] == sf_rptr[ADDR_WIDTH-1:0]) ) == full
+            );
+        end
+    end
+
+    // =========================================================================
     // GROUP 7 — DATA ORDERING (per-slot integrity).
     //
     // Timing reasoning:
@@ -208,6 +254,65 @@ module sync_fifo_properties #(
     end
 
     // =========================================================================
+    // GROUP 7b — NO-LOSS / NO-DUPLICATION (read-once, in order).
+    //
+    //   End-to-end "no duplication" story for the tracked slot: the value a
+    //   tracked write deposited must be consumed by EXACTLY ONE matching read
+    //   before that slot can be legitimately re-read.  In a single-pointer ring
+    //   buffer a slot can only be re-read after the read pointer wraps all the
+    //   way around (DEPTH reads) AND the slot has been rewritten in between —
+    //   you can never read the same deposited word twice without an intervening
+    //   write to that slot.  We model this with a small per-slot ownership flag:
+    //
+    //     slot_pending : set when the tracked slot is written, cleared when it
+    //                    is read.  A read of the tracked slot is only legal
+    //                    while pending; reading it while NOT pending would mean
+    //                    the previously-deposited word is being delivered a
+    //                    second time (duplication) or before any write
+    //                    (read-before-write), both of which the handshake +
+    //                    pointer discipline must forbid.
+    //
+    //   a_no_duplicate_read: a read of the tracked slot only occurs while its
+    //                        deposited word is still pending (not yet consumed).
+    //   a_no_read_before_write: the very first read of the tracked slot is never
+    //                        accepted before that slot has ever been written.
+    // =========================================================================
+    logic slot_pending;       // tracked slot holds an un-consumed word
+    logic slot_ever_written;  // tracked slot has been written at least once
+
+    initial begin
+        slot_pending      = 1'b0;
+        slot_ever_written = 1'b0;
+    end
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            slot_pending      <= 1'b0;
+            slot_ever_written <= 1'b0;
+        end else begin
+            // A write to the tracked slot deposits a (new) word -> pending.
+            if (do_write && (waddr == track_slot)) begin
+                slot_pending      <= 1'b1;
+                slot_ever_written <= 1'b1;
+            // A read of the tracked slot consumes the pending word.
+            end else if (do_read && (raddr == track_slot)) begin
+                slot_pending <= 1'b0;
+            end
+        end
+    end
+
+    always @(posedge clk) begin
+        if (rst_n) begin
+            // No duplication: never read the tracked slot unless it currently
+            // holds an un-consumed deposited word.
+            if (do_read && (raddr == track_slot)) begin
+                a_no_duplicate_read:    assert (slot_pending);
+                a_no_read_before_write: assert (slot_ever_written);
+            end
+        end
+    end
+
+    // =========================================================================
     // GROUP 8 — Cover points.
     // =========================================================================
 
@@ -239,6 +344,154 @@ module sync_fifo_properties #(
             rst_n && f_tracked_written &&
             do_read && (raddr == track_slot) && tracked_valid
         );
+    end
+
+    // -------------------------------------------------------------------------
+    // GROUP 8b — Additional waveform witnesses for richer traces.
+    // -------------------------------------------------------------------------
+
+    // c_reach_empty_after_full: explicit "drain to empty" — empty reached while
+    //   the FIFO had previously been full (companion to c_full_then_empty, but
+    //   asserts the empty edge precisely on the cycle it is first reached).
+    reg f_seen_nonempty;
+    initial f_seen_nonempty = 1'b0;
+    always @(posedge clk) begin
+        if (!rst_n) f_seen_nonempty <= 1'b0;
+        else if (!empty) f_seen_nonempty <= 1'b1;
+    end
+    always @(posedge clk) begin
+        c_drain_to_empty: cover (rst_n && f_seen_nonempty && empty);
+    end
+
+    // c_ptr_wrap: pointer wrap — a write is accepted while the write address is
+    //   the top slot AND the wrap (MSB) bit is about to toggle, i.e. the low
+    //   address is about to roll from DEPTH-1 back to 0.  Demonstrates the
+    //   extra-MSB ring-buffer wrap that disambiguates empty from full.
+    always @(posedge clk) begin
+        c_wptr_wrap: cover (
+            rst_n && do_write && (waddr == (DEPTH-1)) && (sf_wptr[ADDR_WIDTH-1:0] == (DEPTH-1))
+        );
+        c_rptr_wrap: cover (
+            rst_n && do_read && (raddr == (DEPTH-1)) && (sf_rptr[ADDR_WIDTH-1:0] == (DEPTH-1))
+        );
+    end
+
+    // c_simul_rw_partial: simultaneous read+write while partially full (neither
+    //   empty nor full) — count holds steady at a mid value, exercising the
+    //   concurrent-handshake path.
+    always @(posedge clk) begin
+        c_simul_rw_partial: cover (
+            rst_n && do_write && do_read && !empty && !full &&
+            (count > 1) && (count < DEPTH[ADDR_WIDTH:0])
+        );
+    end
+
+    // c_full_empty_full: full -> empty -> full round trip in a single trace.
+    //   Two-stage flag: arm on full, advance through empty, complete on full
+    //   again — proves the FIFO can be filled, fully drained, and refilled.
+    reg [1:0] f_cycle_stage;   // 0=init, 1=was full, 2=full->empty, 3=full again
+    initial f_cycle_stage = 2'd0;
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            f_cycle_stage <= 2'd0;
+        end else begin
+            case (f_cycle_stage)
+                2'd0: if (full)  f_cycle_stage <= 2'd1;
+                2'd1: if (empty) f_cycle_stage <= 2'd2;
+                2'd2: if (full)  f_cycle_stage <= 2'd3;
+                default: ; // stay
+            endcase
+        end
+    end
+    always @(posedge clk) begin
+        c_full_empty_full: cover (rst_n && (f_cycle_stage == 2'd3));
+    end
+
+    // =========================================================================
+    // GROUP 9 — LIVENESS / PROGRESS (fairness-conditioned, bounded formulation).
+    //
+    //   WHY BOUNDED-SAFETY INSTEAD OF `mode live` / s_eventually:
+    //     True unbounded liveness (assert property (s_eventually ...)) needs an
+    //     omega-regular / fair-cycle engine.  The only engine SymbiYosys 0.66
+    //     accepts for `mode live` is `aiger suprove`, and suprove is NOT present
+    //     in this OSS CAD Suite install (verified: `which suprove` -> not found;
+    //     `mode live` with smtbmc/pono is rejected as "Invalid engine for live
+    //     mode").  Rather than claim a liveness mode we cannot run, we encode
+    //     progress as a BOUNDED-WINDOW SAFETY property that smtbmc proves at the
+    //     BMC gate: under a fairness assumption (read pressure with no writes),
+    //     occupancy strictly decreases every cycle, which bounds drain-to-empty
+    //     to <= DEPTH cycles.  Strict monotone decrease under sustained pressure
+    //     is a sound, decidable witness of progress / no-deadlock.
+    //
+    //   a_progress_drain : while rd_en is asserted, the FIFO is non-empty, and no
+    //                      write is accepted this cycle, occupancy strictly
+    //                      decreases next cycle.  No read-side stall: a readable
+    //                      FIFO under read pressure always drains by one.
+    //   a_progress_fill  : while wr_en is asserted, the FIFO is non-full, and no
+    //                      read is accepted this cycle, occupancy strictly
+    //                      increases next cycle.  No write-side stall.
+    //   a_no_deadlock    : the FIFO can ALWAYS make progress — it is never
+    //                      simultaneously unable to accept a write (full) and
+    //                      unable to deliver a read (empty).  (Equivalent to
+    //                      a_no_full_and_empty but framed as the no-deadlock
+    //                      liveness precondition: at least one direction is
+    //                      always enabled, so a fair environment cannot wedge.)
+    // =========================================================================
+    always @(posedge clk) begin
+        if (f_past_valid && rst_n && $past(rst_n)) begin
+            // Bounded drain: read pressure + non-empty + no accepted write
+            //   => occupancy went down by exactly one.
+            if ($past(rd_en) && !$past(empty) && !$past(do_write)) begin
+                a_progress_drain: assert (count == ($past(count) - 1'b1));
+            end
+            // Bounded fill: write pressure + non-full + no accepted read
+            //   => occupancy went up by exactly one.
+            if ($past(wr_en) && !$past(full) && !$past(do_read)) begin
+                a_progress_fill: assert (count == ($past(count) + 1'b1));
+            end
+        end
+    end
+
+    // No-deadlock: at least one direction (enqueue or dequeue) is always enabled.
+    always @(posedge clk) begin
+        if (rst_n) begin
+            a_no_deadlock: assert (!full || !empty);
+        end
+    end
+
+    // -------------------------------------------------------------------------
+    // GROUP 9b — progress witnesses (cover): show drain and fill actually run to
+    //   completion under sustained pressure, producing readable waveforms.
+    //
+    //   f_drain_run counts consecutive cycles of "read pressure, no write".  The
+    //   cover fires when such a run ends at empty, i.e. a real drain-to-empty
+    //   episode happened (not a vacuous single-cycle hit).
+    // -------------------------------------------------------------------------
+    localparam int CW = ADDR_WIDTH + 2;   // wide enough to count past DEPTH
+    reg [CW-1:0] f_drain_run;
+    reg [CW-1:0] f_fill_run;
+    initial begin
+        f_drain_run = '0;
+        f_fill_run  = '0;
+    end
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            f_drain_run <= '0;
+            f_fill_run  <= '0;
+        end else begin
+            // sustained read pressure with no writes accepted
+            if (rd_en && !do_write && !empty) f_drain_run <= f_drain_run + 1'b1;
+            else                              f_drain_run <= '0;
+            // sustained write pressure with no reads accepted
+            if (wr_en && !do_read && !full)   f_fill_run <= f_fill_run + 1'b1;
+            else                              f_fill_run <= '0;
+        end
+    end
+    always @(posedge clk) begin
+        // A multi-cycle drain run that has emptied the FIFO.
+        c_sustained_drain_empties: cover (rst_n && empty && (f_drain_run >= DEPTH[CW-1:0]));
+        // A multi-cycle fill run that has filled the FIFO.
+        c_sustained_fill_fills:    cover (rst_n && full  && (f_fill_run  >= DEPTH[CW-1:0]));
     end
 
 `endif // FORMAL

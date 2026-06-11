@@ -1,0 +1,16 @@
+[options]
+mode cover
+depth 30
+multiclock on
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL async_fifo.sv
+read -formal -DFORMAL async_fifo_formal_tb.sv
+prep -top async_fifo_formal_tb
+
+[files]
+rtl/async_fifo.sv
+formal/async_fifo_formal_tb.sv

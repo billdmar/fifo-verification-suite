@@ -8,6 +8,7 @@ formal/*/
 # Verilator
 obj_dir/
 obj_dir_*/
+logs_annotated/
 *.o
 *.d
 
