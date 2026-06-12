@@ -19,5 +19,9 @@ logs_annotated/
 coverage.dat
 logfile.txt
 
+# Python
+__pycache__/
+*.pyc
+
 # macOS
 .DS_Store

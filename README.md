@@ -219,6 +219,7 @@ make sim-sweep          # Sweep DEPTHS="4 8 16 64 256"
 make sim-coverage       # Verilator line/toggle/branch/expr coverage report
 make sim-fault          # Fault-injection self-test (exits 0 only if checker fires)
 make fpga-report        # Real Yosys+nextpnr P&R sweep (ECP5 + iCE40)
+make waveforms          # Regenerate docs/waveforms/*.svg from the sim VCD
 make clean              # Remove all build artefacts
 make help               # Show all targets
 ```
@@ -421,6 +422,44 @@ Radiant/Vivado) numbers** — see the doc for the full methodology.
 | `make lint` / `lint-async` / `lint-axis` (Verilator) | ✅ all clean |
 | `make lint-verible` (Verible style gate) | ✅ exit 0 on all RTL |
 
+### Waveforms
+
+These SVGs are generated **from the real simulation VCD** by
+`scripts/gen_waveforms.py` (pure-Python, stdlib only) — regenerate with
+`make waveforms` after `make sim`. Each is a sampled-per-clock view, so the
+1-cycle registered `rd_data` latency is visible.
+
+| Fill to full | Drain to empty |
+|---|---|
+| ![fill](docs/waveforms/wave_fill_to_full.svg) | ![drain](docs/waveforms/wave_drain_to_empty.svg) |
+| `count` rises 0→8; `full` asserts exactly at `count==DEPTH`. | `count` falls; `empty` asserts at 0; registered read latency visible. |
+
+| Simultaneous read + write | Threshold flags |
+|---|---|
+| ![simul](docs/waveforms/wave_simultaneous_rw.svg) | ![thresh](docs/waveforms/wave_thresholds.svg) |
+| `wr_en` & `rd_en` both accepted; `count` holds steady. | `almost_full` / `almost_empty` track `count`. |
+
+---
+
+## What's proven vs. what's tested
+
+This repo is precise about formal **PROVEN** (unbounded) vs **PASS**
+(BMC-bounded) vs simulation-**VALIDATED** vs out-of-scope. The short version:
+
+- **Proven (unbounded, k-induction):** mutual exclusion, pointer/count
+  invariants, almost-full/empty tracking, and bounded progress / no-deadlock.
+- **BMC-bounded:** the `$anyconst` data-integrity properties (sync + async +
+  AXI) — the slot tracker can't bind to internal `mem[]` on the open-source
+  Yosys frontend, so the induction step is open; BMC depth 16–20 is the gate.
+- **Simulation-validated:** data ordering across all depths + 120k random
+  cycles, coverage closure, fault-injection anti-vacuity.
+- **Out of scope (said plainly):** true unbounded liveness (`suprove` not
+  bundled), analog metastability, vendor-FPGA timing.
+
+Full detail: **[docs/proven_vs_tested.md](docs/proven_vs_tested.md)** ·
+consolidated **[verification matrix](docs/verification_matrix.md)** ·
+**[CDC architecture](docs/cdc_architecture.md)** (with diagram).
+
 ---
 
 ## Repository Layout
@@ -432,8 +471,12 @@ sync-fifo-formal/
 │       └── ci.yml              # GitHub Actions CI
 ├── docs/
 │   ├── fpga_results.md        # Real ECP5 + iCE40 P&R area/timing tables
+│   ├── cdc_architecture.md    # Async CDC explainer + Mermaid diagram
+│   ├── verification_matrix.md # Consolidated proof/test matrix
+│   ├── proven_vs_tested.md    # Honest proven / BMC / sim / out-of-scope split
 │   └── waveforms/
-│       └── .gitkeep            # Placeholder; sim VCD written here
+│       ├── .gitkeep
+│       └── wave_*.svg          # Timing diagrams generated from the sim VCD
 ├── formal/
 │   ├── sync_fifo_bmc.sby       # sync BMC (depth 20, CI gate)
 │   ├── sync_fifo_live.sby      # sync bounded liveness/progress (depth 20, CI gate)
@@ -452,7 +495,8 @@ sync-fifo-formal/
 │   ├── async_fifo.sv           # DUT — dual-clock CDC FIFO (Gray + synchronizers, inlined SVA)
 │   └── axis_fifo.sv            # AXI4-Stream wrapper around sync_fifo (inlined SVA)
 ├── scripts/
-│   └── fpga_report.sh         # Yosys + nextpnr P&R sweep (ECP5 + iCE40)
+│   ├── fpga_report.sh         # Yosys + nextpnr P&R sweep (ECP5 + iCE40)
+│   └── gen_waveforms.py       # VCD -> SVG timing diagrams (stdlib only)
 ├── tb/
 │   └── tb_sync_fifo.cpp        # Verilator C++ TB + std::queue scoreboard (13 tests + coverage)
 ├── .rules.verible_lint         # Verible style-lint config
