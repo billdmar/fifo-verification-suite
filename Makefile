@@ -43,7 +43,7 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
 .PHONY: help lint lint-async lint-axis lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
-        sim sim-sweep sim-fault sim-coverage fpga-report all clean
+        sim sim-sweep sim-fault sim-coverage fpga-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -194,6 +194,11 @@ sim-coverage:
 ## fpga-report  : Real Yosys+nextpnr P&R area/timing sweep (ECP5 + iCE40)
 fpga-report:
 	./scripts/fpga_report.sh
+
+##─────────────────────────────────────────────────────────────────────────────
+## waveforms    : Regenerate docs/waveforms/*.svg from the sim VCD (needs `make sim`)
+waveforms:
+	python3 scripts/gen_waveforms.py
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## all          : CI gate set — lint, synth, formal (sync/async/AXI), sim
