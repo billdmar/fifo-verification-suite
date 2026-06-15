@@ -19,12 +19,28 @@ jobs:
           tar -xzf oss-cad-suite.tgz
           echo "$PWD/oss-cad-suite/bin" >> $GITHUB_PATH
 
+      # ── Install Verible (linux x86_64, pinned) ────────────────────────────
+      - name: Install Verible
+        run: |
+          VERIBLE_VER=v0.0-4071-g8d9f2c97
+          curl -L -o verible.tar.gz \
+            "https://github.com/chipsalliance/verible/releases/download/$VERIBLE_VER/verible-$VERIBLE_VER-linux-static-x86_64.tar.gz"
+          mkdir -p "$HOME/verible"
+          tar xzf verible.tar.gz -C "$HOME/verible" --strip-components=1
+          echo "$HOME/verible/bin" >> "$GITHUB_PATH"
+
       # ── CI gate steps ─────────────────────────────────────────────────────
       - name: Lint — sync FIFO (Verilator)
         run: make lint
 
       - name: Lint — async FIFO (Verilator)
         run: make lint-async
+
+      - name: Lint — AXI4-Stream wrapper (Verilator)
+        run: make lint-axis
+
+      - name: Lint — Verible style gate (all RTL)
+        run: make lint-verible
 
       - name: Synthesise (Yosys)
         run: make synth
@@ -40,6 +56,12 @@ jobs:
 
       - name: Formal — async cover reachability (gate)
         run: make formal-async-cover
+
+      - name: Formal — AXI4-Stream protocol compliance BMC depth 20 (gate)
+        run: make formal-axis-bmc
+
+      - name: Formal — AXI4-Stream cover reachability (gate)
+        run: make formal-axis-cover
 
       - name: Formal — sync cover witnesses fill/drain/wrap/round-trip (gate)
         run: make formal-cover
@@ -81,3 +103,24 @@ jobs:
           name: sim-waveform
           path: docs/waveforms/sim_waves.vcd
           if-no-files-found: warn
+
+  # ── Informational — real FPGA P&R sweep (ECP5 + iCE40). Non-gating: open-source
+  #    place-and-route is slow and heuristic; committed numbers live in
+  #    docs/fpga_results.md. This job re-runs the flow to keep them honest. ──────
+  fpga:
+    name: FPGA P&R sweep (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OSS CAD Suite
+        run: |
+          curl -L -o oss-cad-suite.tgz \
+            https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-06-04/oss-cad-suite-linux-x64-20260604.tgz
+          tar -xzf oss-cad-suite.tgz
+          echo "$PWD/oss-cad-suite/bin" >> $GITHUB_PATH
+
+      - name: FPGA report (Yosys + nextpnr, ECP5 + iCE40)
+        run: make fpga-report

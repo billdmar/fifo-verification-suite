@@ -1,0 +1,17 @@
+[options]
+mode bmc
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo.sv
+read -formal -DFORMAL axis_fifo.sv
+# DEPTH=8 harness for formal tractability (same convention as the sync harness).
+chparam -set DEPTH 8 axis_fifo
+prep -top axis_fifo
+
+[files]
+rtl/sync_fifo.sv
+rtl/axis_fifo.sv
