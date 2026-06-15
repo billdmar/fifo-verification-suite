@@ -1,6 +1,6 @@
-# HANDOFF — sync-fifo-formal "reference-grade" upgrade
+# HANDOFF — SystemVerilog FIFO Verification Suite "reference-grade" upgrade
 
-_Last updated: 2026-06-11. Repo: github.com/billdmar/sync-fifo-formal (public)._
+_Last updated: 2026-06-15. Repo: github.com/billdmar/fifo-verification-suite (public)._
 
 ## Goal
 Take the repo from "strong formally-verified synchronous FIFO" to a reference-grade

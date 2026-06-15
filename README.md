@@ -1,8 +1,8 @@
-# sync-fifo-formal
+# SystemVerilog FIFO Verification Suite
 
-> Formally-verified, parameterizable **synchronous and asynchronous (dual-clock CDC)** FIFOs in SystemVerilog — proven correct with SymbiYosys, not just simulated.
+> Synchronous, asynchronous (dual-clock CDC), and AXI4-Stream FIFOs in SystemVerilog — formally verified with SymbiYosys and exhaustively simulated with Verilator, not just hand-checked.
 
-[![CI](https://github.com/billdmar/sync-fifo-formal/actions/workflows/ci.yml/badge.svg)](https://github.com/billdmar/sync-fifo-formal/actions/workflows/ci.yml)
+[![CI](https://github.com/billdmar/fifo-verification-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/billdmar/fifo-verification-suite/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![SystemVerilog](https://img.shields.io/badge/SystemVerilog-IEEE_1800-orange?style=for-the-badge)]()
 [![Formal](https://img.shields.io/badge/Formal-SymbiYosys-blue?style=for-the-badge)]()
@@ -189,8 +189,8 @@ source oss-cad-suite/environment
 ### 2. Clone and run
 
 ```sh
-git clone https://github.com/billdmar/sync-fifo-formal.git
-cd sync-fifo-formal
+git clone https://github.com/billdmar/fifo-verification-suite.git
+cd fifo-verification-suite
 
 make lint          # sync RTL lint with Verilator
 make formal-bmc    # Bounded model check (depth 20) — CI gate
@@ -465,7 +465,7 @@ consolidated **[verification matrix](docs/verification_matrix.md)** ·
 ## Repository Layout
 
 ```
-sync-fifo-formal/
+fifo-verification-suite/
 ├── .github/
 │   └── workflows/
 │       └── ci.yml              # GitHub Actions CI

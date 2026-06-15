@@ -1,5 +1,5 @@
 ################################################################################
-# Makefile — sync-fifo-formal
+# Makefile — SystemVerilog FIFO Verification Suite
 # Targets: help lint synth formal-bmc formal-prove formal sim sim-sweep
 #          sim-fault all clean
 ################################################################################
