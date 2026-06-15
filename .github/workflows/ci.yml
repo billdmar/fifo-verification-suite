@@ -20,21 +20,49 @@ jobs:
           echo "$PWD/oss-cad-suite/bin" >> $GITHUB_PATH
 
       # ── CI gate steps ─────────────────────────────────────────────────────
-      - name: Lint (Verilator)
+      - name: Lint — sync FIFO (Verilator)
         run: make lint
+
+      - name: Lint — async FIFO (Verilator)
+        run: make lint-async
 
       - name: Synthesise (Yosys)
         run: make synth
 
-      - name: Formal — BMC depth 20 (gate)
+      - name: Formal — sync BMC depth 20 (gate)
         run: make formal-bmc
 
-      - name: Simulate — Verilator TB depth 8 (gate)
+      - name: Formal — bounded liveness / progress depth 20 (gate)
+        run: make formal-live
+
+      - name: Formal — async CDC BMC depth 16, multiclock (gate)
+        run: make formal-async-bmc
+
+      - name: Formal — async cover reachability (gate)
+        run: make formal-async-cover
+
+      - name: Formal — sync cover witnesses fill/drain/wrap/round-trip (gate)
+        run: make formal-cover
+
+      - name: Simulate — Verilator TB depth 8 + functional coverage (gate)
         run: make sim
 
-      # ── Informational — k-induction proof (may be slow) ──────────────────
-      - name: Formal — k-induction proof depth 15 (informational)
+      - name: Simulate — depth sweep 4/8/16/64/256 (gate)
+        run: make sim-sweep
+
+      - name: Coverage — Verilator line/toggle/branch/expr (gate)
+        run: make sim-coverage
+
+      - name: Self-test — fault injection must be caught (gate)
+        run: make sim-fault
+
+      # ── Informational — k-induction proofs (may be slow / not fully closed)
+      - name: Formal — sync k-induction proof depth 15 (informational)
         run: make formal-prove
+        continue-on-error: true
+
+      - name: Formal — async k-induction (informational, step not closed)
+        run: make formal-async-prove
         continue-on-error: true
 
       # ── Artefacts ─────────────────────────────────────────────────────────

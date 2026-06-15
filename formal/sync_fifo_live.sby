@@ -1,0 +1,35 @@
+# =============================================================================
+# sync_fifo_live.sby — BOUNDED LIVENESS / PROGRESS gate.
+#
+#   True unbounded liveness (mode live / s_eventually) is NOT runnable on this
+#   OSS CAD Suite: the only engine SymbiYosys accepts for `mode live` is
+#   `aiger suprove`, and suprove is not installed here (smtbmc and pono are both
+#   rejected as invalid engines for live mode).  We therefore gate the progress
+#   properties (Group 9 in sync_fifo_properties.sv) as BOUNDED-WINDOW SAFETY:
+#   under sustained read/write pressure, occupancy strictly decreases/increases
+#   each cycle, which bounds drain-to-empty and fill-to-full to <= DEPTH cycles.
+#
+#   depth 20 fully covers a fill-8-then-drain-8 episode for the DEPTH=8 harness,
+#   so a_progress_drain / a_progress_fill / a_no_deadlock are exhaustively
+#   checked over every reachable progress window.  All three also close the
+#   k-induction step in formal/sync_fifo.sby (they are inductive safety
+#   invariants); this script is the dedicated bounded-liveness gate.
+# =============================================================================
+
+[options]
+mode bmc
+depth 20
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo.sv
+read -formal -DFORMAL sync_fifo_properties.sv
+read -formal -DFORMAL sync_fifo_formal_tb.sv
+prep -top sync_fifo_formal_tb
+
+[files]
+rtl/sync_fifo.sv
+rtl/sync_fifo_properties.sv
+formal/sync_fifo_formal_tb.sv

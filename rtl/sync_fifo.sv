@@ -66,6 +66,12 @@ module sync_fifo #(
     if ((DEPTH & (DEPTH - 1)) != 0) begin : gen_chk_depth_pow2
         $error("sync_fifo: DEPTH=%0d must be a power of two", DEPTH);
     end
+    if (ALMOST_FULL_THRESH < 1 || ALMOST_FULL_THRESH > DEPTH-1) begin : gen_chk_af_thresh
+        $error("sync_fifo: ALMOST_FULL_THRESH=%0d out of range [1,DEPTH-1]", ALMOST_FULL_THRESH);
+    end
+    if (ALMOST_EMPTY_THRESH < 1 || ALMOST_EMPTY_THRESH > DEPTH-1) begin : gen_chk_ae_thresh
+        $error("sync_fifo: ALMOST_EMPTY_THRESH=%0d out of range [1,DEPTH-1]", ALMOST_EMPTY_THRESH);
+    end
 
     // Storage.
     logic [DATA_WIDTH-1:0] mem [0:DEPTH-1];

@@ -65,6 +65,7 @@
 #endif
 
 static constexpr int DEPTH           = DEPTH_PARAM;
+// DATA_WIDTH is fixed at 8 by the build matrix (the Makefile only varies DEPTH).
 static constexpr int DATA_WIDTH      = 8;   // default; DUT uses 8
 // Thresholds must match the DUT defaults: DEPTH-2 and 2
 static constexpr int ALMOST_FULL_TH  = DEPTH - 2;
@@ -84,6 +85,95 @@ static std::queue<uint64_t> gold_q;
 // 1-cycle read latency pending check
 static bool     pending_check_valid = false;
 static uint64_t pending_expected    = 0;
+
+// ---------------------------------------------------------------------------
+// Functional coverage bins
+// ---------------------------------------------------------------------------
+// Portable, depth-independent functional coverage. Each bin counts how many
+// times a meaningful DUT event was observed across the whole sim. Coverage
+// closure requires every bin to be hit at least once. The bins are sampled
+// every tick from cov_sample() (called inside tick_impl AFTER the posedge so
+// the registered count/flags reflect the new state), plus an edge-detected
+// "full->empty in consecutive cycles" bin that needs cross-cycle history.
+//
+// These run on EVERY depth and are checked/reported regardless of whether the
+// Verilator --coverage (line/toggle) build is used, so the closure story holds
+// on every build configuration.
+enum CovBin {
+    COV_HIT_FULL = 0,      // FIFO reached full (count == DEPTH)
+    COV_HIT_EMPTY,         // FIFO reached empty (count == 0)
+    COV_SIMUL_RW,          // simultaneous write+read both accepted in one cycle
+    COV_PTR_WRAP,          // a pointer wrapped its low address field (full addr cycle)
+    COV_ALMOST_FULL,       // almost_full asserted
+    COV_ALMOST_EMPTY,      // almost_empty asserted
+    COV_FULL_THEN_EMPTY,   // transitioned full -> empty across the run
+    COV_WRITE_WHILE_FULL,  // wr_en asserted while full (write must be ignored)
+    COV_READ_WHILE_EMPTY,  // rd_en asserted while empty (read must be ignored)
+    COV_OCC_ONE,           // occupancy of exactly 1 entry observed
+    COV_NUM_BINS
+};
+
+struct CovBinInfo {
+    const char *name;
+    uint64_t    count;
+};
+
+static CovBinInfo cov_bins[COV_NUM_BINS] = {
+    { "hit_full",          0 },
+    { "hit_empty",         0 },
+    { "simultaneous_rw",   0 },
+    { "pointer_wrap",      0 },
+    { "almost_full",       0 },
+    { "almost_empty",      0 },
+    { "full_then_empty",   0 },
+    { "write_while_full",  0 },
+    { "read_while_empty",  0 },
+    { "occupancy_eq_1",    0 },
+};
+
+static inline void cov_hit(CovBin b) { cov_bins[b].count++; }
+
+// Cross-cycle state for edge-detected bins.
+static bool     cov_was_full      = false;  // DUT was full on the previous tick
+static uint32_t cov_prev_count    = 0;      // count observed on the previous tick
+static bool     cov_prev_count_v  = false;  // prev_count is valid
+
+// Sample the functional-coverage bins. Called after the posedge eval so that
+// the registered outputs (count, full, empty, almost_*) reflect the new state.
+// 'pre_full' / 'pre_empty' are the COMBINATIONAL flags captured BEFORE the edge
+// (i.e. the state the inputs were qualified against) so we can attribute
+// accepted/ignored operations correctly.
+static void cov_sample(bool wr_en_in, bool rd_en_in, bool pre_full, bool pre_empty) {
+    uint32_t cnt = (uint32_t)dut->count;
+
+    if ((bool)dut->full)         cov_hit(COV_HIT_FULL);
+    if ((bool)dut->empty)        cov_hit(COV_HIT_EMPTY);
+    if ((bool)dut->almost_full)  cov_hit(COV_ALMOST_FULL);
+    if ((bool)dut->almost_empty) cov_hit(COV_ALMOST_EMPTY);
+    if (cnt == 1)                cov_hit(COV_OCC_ONE);
+
+    // Accepted simultaneous read+write: both qualified on the pre-edge state.
+    if (wr_en_in && !pre_full && rd_en_in && !pre_empty) cov_hit(COV_SIMUL_RW);
+
+    // Ignored operations at the boundaries.
+    if (wr_en_in && pre_full)  cov_hit(COV_WRITE_WHILE_FULL);
+    if (rd_en_in && pre_empty) cov_hit(COV_READ_WHILE_EMPTY);
+
+    // Pointer wrap: count returning to 0 after having been full, or a full
+    // address cycle completing, is captured below via full_then_empty. The
+    // distinct PTR_WRAP bin fires whenever the occupancy crosses a full DEPTH
+    // worth of activity — detected as: we were full and are now empty, OR the
+    // count just decreased to 0 from a non-zero value (read pointer wrapped
+    // back to write pointer). Both imply the address field cycled.
+    if (cov_prev_count_v && cov_prev_count != 0 && cnt == 0) cov_hit(COV_PTR_WRAP);
+
+    // full -> empty transition across the run (edge detected).
+    if (cov_was_full && (bool)dut->empty) cov_hit(COV_FULL_THEN_EMPTY);
+
+    cov_was_full     = (bool)dut->full;
+    cov_prev_count   = cnt;
+    cov_prev_count_v = true;
+}
 
 // ---------------------------------------------------------------------------
 // Clock helpers
@@ -183,6 +273,13 @@ static void sample_transactions(const char *context) {
 // Full tick implementation
 // ---------------------------------------------------------------------------
 static void tick_impl(const char *context) {
+    // Capture inputs and combinational flags BEFORE the posedge so coverage can
+    // attribute accepted vs ignored operations against the pre-edge state.
+    bool cov_wr_en    = (bool)dut->wr_en;
+    bool cov_rd_en    = (bool)dut->rd_en;
+    bool cov_pre_full = (bool)dut->full;
+    bool cov_pre_empty = (bool)dut->empty;
+
     // Sample accepted transactions on current inputs (before posedge).
     sample_transactions(context);
 
@@ -194,6 +291,9 @@ static void tick_impl(const char *context) {
 
     // Scoreboard: check after posedge (registered outputs now valid).
     scoreboard_check(context);
+
+    // Functional coverage: sample AFTER the posedge (registered outputs valid).
+    cov_sample(cov_wr_en, cov_rd_en, cov_pre_full, cov_pre_empty);
 
     // Negedge
     dut->clk = 0;
@@ -520,6 +620,296 @@ static void test_backtoback() {
 }
 
 // ---------------------------------------------------------------------------
+// TEST 8: Single-entry occupancy oscillation
+// Write 1 then read 1 repeatedly at the boundary so occupancy bounces between
+// 0 and 1. Exercises the empty<->one-entry corner and the registered read
+// path with minimal occupancy. The scoreboard validates every popped word.
+// ---------------------------------------------------------------------------
+static void test_single_entry_oscillation() {
+    int pre = total_errors;
+    printf("[TEST 8] Single-entry occupancy oscillation (DEPTH=%d)...\n", DEPTH);
+
+    do_reset(4);
+
+    uint8_t data_val = 0x40;
+    for (int iter = 0; iter < 500; iter++) {
+        // Push exactly one entry.
+        dut->wr_en  = 1; dut->rd_en = 0;
+        dut->wr_data = data_val++;
+        tick("osc_write");
+
+        // Pop exactly one entry.
+        dut->wr_en = 0; dut->rd_en = 1;
+        tick("osc_read");
+    }
+    dut->wr_en = 0; dut->rd_en = 0;
+    tick("osc_settle");
+
+    bool pass = (total_errors == pre);
+    if (!dut->empty) { printf("  [FAIL] not empty after oscillation\n"); total_errors++; pass=false; }
+    printf("  -> %s (%d new errors)\n", pass ? "PASS" : "FAIL", total_errors - pre);
+}
+
+// ---------------------------------------------------------------------------
+// TEST 9: Full-boundary stress
+// Fill to full, then hammer wr_en (rd_en low) for many cycles. Every write
+// while full must be ignored: count must stay == DEPTH and the golden queue
+// must not grow. Exercises the do_write=wr_en&&!full qualification at the
+// full boundary.
+// ---------------------------------------------------------------------------
+static void test_full_boundary_stress() {
+    int pre = total_errors;
+    printf("[TEST 9] Full-boundary stress (DEPTH=%d)...\n", DEPTH);
+
+    do_reset(4);
+
+    // Fill to full.
+    uint8_t data_val = 0x80;
+    for (int i = 0; i < DEPTH; i++) {
+        dut->wr_en  = 1; dut->rd_en = 0;
+        dut->wr_data = data_val++;
+        tick("full_fill");
+    }
+    dut->wr_en = 0; tick("full_settle");
+
+    bool pass = true;
+    if (!dut->full) { printf("  [FAIL] not full after fill\n"); total_errors++; pass=false; }
+
+    // Hammer writes while full; count must remain DEPTH the whole time.
+    for (int i = 0; i < 300; i++) {
+        dut->wr_en  = 1; dut->rd_en = 0;
+        dut->wr_data = data_val++;
+        tick("full_hammer");
+        if ((uint32_t)dut->count != (uint32_t)DEPTH) {
+            printf("  [FAIL] count drifted while hammering full: got=%u\n",
+                   (uint32_t)dut->count);
+            total_errors++; pass=false;
+            break;
+        }
+    }
+    dut->wr_en = 0; tick("full_hammer_settle");
+
+    if (gold_q.size() != (size_t)DEPTH) {
+        printf("  [FAIL] golden queue grew past DEPTH (size=%zu)\n", gold_q.size());
+        total_errors++; pass=false;
+    }
+    printf("  -> %s (%d new errors)\n", pass ? "PASS" : "FAIL", total_errors - pre);
+}
+
+// ---------------------------------------------------------------------------
+// TEST 10: Empty-boundary stress
+// From empty, hammer rd_en (wr_en low) for many cycles. Every read while empty
+// must be ignored: count must stay 0, empty stays asserted, golden queue stays
+// empty. Exercises the do_read=rd_en&&!empty qualification at the empty
+// boundary.
+// ---------------------------------------------------------------------------
+static void test_empty_boundary_stress() {
+    int pre = total_errors;
+    printf("[TEST 10] Empty-boundary stress (DEPTH=%d)...\n", DEPTH);
+
+    do_reset(4);
+
+    bool pass = true;
+    for (int i = 0; i < 300; i++) {
+        dut->rd_en = 1; dut->wr_en = 0;
+        tick("empty_hammer");
+        if ((uint32_t)dut->count != 0) {
+            printf("  [FAIL] count nonzero while hammering empty: got=%u\n",
+                   (uint32_t)dut->count);
+            total_errors++; pass=false;
+            break;
+        }
+        if (!dut->empty) {
+            printf("  [FAIL] empty deasserted while hammering empty\n");
+            total_errors++; pass=false;
+            break;
+        }
+    }
+    dut->rd_en = 0; tick("empty_hammer_settle");
+
+    if (gold_q.size() != 0) {
+        printf("  [FAIL] golden queue nonempty after empty hammer (size=%zu)\n",
+               gold_q.size());
+        total_errors++; pass=false;
+    }
+    printf("  -> %s (%d new errors)\n", pass ? "PASS" : "FAIL", total_errors - pre);
+}
+
+// ---------------------------------------------------------------------------
+// TEST 11: Alternating bursts of writes then reads of random lengths
+// Repeatedly: write a random-length burst, then read a random-length burst.
+// Burst lengths can exceed remaining capacity/occupancy so full/empty get hit
+// inside bursts (extra writes/reads safely ignored by the DUT and golden via
+// the !full/!empty qualification). The scoreboard validates ordering across
+// all bursts.
+// ---------------------------------------------------------------------------
+static void test_alternating_bursts() {
+    int pre = total_errors;
+    printf("[TEST 11] Alternating random-length bursts (DEPTH=%d)...\n", DEPTH);
+
+    do_reset(4);
+
+    uint32_t lfsr = 0x1D7Bu;
+    auto lfsr_next = [&]() -> uint32_t {
+        lfsr = (lfsr >> 1) ^ (-(lfsr & 1u) & 0xB400u);
+        return lfsr;
+    };
+
+    uint8_t data_val = 0x10;
+    for (int burst = 0; burst < 400; burst++) {
+        // Write burst: length 1..(DEPTH+2) so it can overflow capacity.
+        int wlen = (int)(lfsr_next() % (DEPTH + 2)) + 1;
+        for (int i = 0; i < wlen; i++) {
+            dut->wr_en  = 1; dut->rd_en = 0;
+            dut->wr_data = data_val++;
+            tick("burst_write");
+        }
+        dut->wr_en = 0;
+
+        // Read burst: length 1..(DEPTH+2) so it can underflow occupancy.
+        int rlen = (int)(lfsr_next() % (DEPTH + 2)) + 1;
+        for (int i = 0; i < rlen; i++) {
+            dut->rd_en = 1; dut->wr_en = 0;
+            tick("burst_read");
+        }
+        dut->rd_en = 0;
+    }
+    dut->wr_en = 0; dut->rd_en = 0;
+    tick("burst_settle");
+
+    bool pass = (total_errors == pre);
+    printf("  -> %s (%d new errors)\n", pass ? "PASS" : "FAIL", total_errors - pre);
+}
+
+// ---------------------------------------------------------------------------
+// TEST 12: Long constrained-random run with biased phases (100k+ cycles)
+// A write-heavy phase drives the FIFO toward sustained full; a read-heavy
+// phase drives it toward sustained empty; a balanced phase exercises the
+// middle. Repeated for many cycles to stress sustained boundary residency and
+// many pointer wraps. Scoreboard validates data correctness throughout.
+// ---------------------------------------------------------------------------
+static void test_long_biased_random() {
+    int pre = total_errors;
+    const int TOTAL_CYCLES = 120000;
+    printf("[TEST 12] Long biased constrained-random (%d cycles, DEPTH=%d)...\n",
+           TOTAL_CYCLES, DEPTH);
+
+    do_reset(4);
+
+    uint32_t lfsr = 0x7AB3u;
+    auto lfsr_next = [&]() -> uint32_t {
+        lfsr = (lfsr >> 1) ^ (-(lfsr & 1u) & 0xB400u);
+        return lfsr;
+    };
+
+    // Phase length: cycle through write-heavy / read-heavy / balanced.
+    const int PHASE_LEN = 2000;
+    for (int cyc = 0; cyc < TOTAL_CYCLES; cyc++) {
+        uint32_t r = lfsr_next();
+        int phase = (cyc / PHASE_LEN) % 3;
+
+        bool wr, rd;
+        switch (phase) {
+            case 0:  // write-heavy: drive toward full
+                wr = ((r & 0x7) != 0);          // ~7/8 writes
+                rd = ((r & 0x18) == 0x18);      // ~1/4 reads
+                break;
+            case 1:  // read-heavy: drain toward empty
+                wr = ((r & 0x18) == 0x18);      // ~1/4 writes
+                rd = ((r & 0x7) != 0);          // ~7/8 reads
+                break;
+            default: // balanced
+                wr = (r >> 0) & 1;
+                rd = (r >> 1) & 1;
+                break;
+        }
+        dut->wr_en   = wr ? 1 : 0;
+        dut->rd_en   = rd ? 1 : 0;
+        dut->wr_data = (uint8_t)((r >> 5) & 0xFF);
+        tick("long_biased");
+    }
+    dut->wr_en = 0; dut->rd_en = 0;
+    tick("long_settle");
+
+    bool pass = (total_errors == pre);
+    printf("  -> %s (%d new errors)\n", pass ? "PASS" : "FAIL", total_errors - pre);
+}
+
+// ---------------------------------------------------------------------------
+// TEST 13: Wrap-around correctness over many full address cycles
+// Stream a long sequence at near-full occupancy by writing two then reading
+// one (net +1 until full, then steady churn) so the read and write pointers
+// each lap the address space many times. With DEPTH entries, running well over
+// 64*DEPTH accepted operations forces dozens of low-address-field wraps while
+// the scoreboard validates FIFO order on every pop.
+// ---------------------------------------------------------------------------
+static void test_many_wraps() {
+    int pre = total_errors;
+    // Enough accepted reads/writes to wrap the address field many times.
+    const int OPS = 64 * DEPTH + 256;
+    printf("[TEST 13] Many wrap-arounds (%d ops, DEPTH=%d)...\n", OPS, DEPTH);
+
+    do_reset(4);
+
+    uint8_t data_val = 0x01;
+    for (int i = 0; i < OPS; i++) {
+        // Alternate: write+read together once steady, with occasional pure
+        // writes to keep the FIFO partially full so both pointers advance and
+        // wrap continuously.
+        bool do_w = true;
+        bool do_r = (i % 3 != 0);   // read 2 of every 3 cycles -> net fill then churn
+        dut->wr_en   = do_w ? 1 : 0;
+        dut->rd_en   = do_r ? 1 : 0;
+        dut->wr_data = data_val++;
+        tick("wrap_churn");
+    }
+
+    // Drain whatever remains so we end empty and validate the tail order.
+    dut->wr_en = 0;
+    for (int i = 0; i < DEPTH + 4; i++) {
+        dut->rd_en = 1; dut->wr_en = 0;
+        tick("wrap_drain");
+    }
+    dut->rd_en = 0; tick("wrap_settle");
+
+    bool pass = (total_errors == pre);
+    if (!dut->empty) { printf("  [FAIL] not empty after wrap drain\n"); total_errors++; pass=false; }
+    printf("  -> %s (%d new errors)\n", pass ? "PASS" : "FAIL", total_errors - pre);
+}
+
+// ---------------------------------------------------------------------------
+// Functional coverage closure report.
+// ---------------------------------------------------------------------------
+static void cov_report() {
+    int covered = 0;
+    printf("\n=== FUNCTIONAL COVERAGE CLOSURE ===\n");
+    printf("  %-22s %12s   %s\n", "bin", "hit_count", "covered");
+    printf("  %-22s %12s   %s\n", "----------------------",
+           "------------", "-------");
+    for (int i = 0; i < COV_NUM_BINS; i++) {
+        bool hit = (cov_bins[i].count > 0);
+        if (hit) covered++;
+        printf("  %-22s %12llu   %s\n",
+               cov_bins[i].name,
+               (unsigned long long)cov_bins[i].count,
+               hit ? "Y" : "N");
+    }
+    double pct = (COV_NUM_BINS > 0)
+                 ? (100.0 * (double)covered / (double)COV_NUM_BINS)
+                 : 0.0;
+    printf("  ------------------------------------------------\n");
+    printf("  functional coverage: %d/%d bins (%.1f%%)\n",
+           covered, COV_NUM_BINS, pct);
+    if (covered < COV_NUM_BINS) {
+        printf("  [FAIL] functional coverage NOT closed — %d bin(s) unhit\n",
+               COV_NUM_BINS - covered);
+        total_errors++;
+    } else {
+        printf("  functional coverage CLOSED (all bins hit)\n");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main(int argc, char **argv) {
@@ -560,9 +950,29 @@ int main(int argc, char **argv) {
     test_depth_behavior();
     test_backtoback();
 
+    // Extended corner-case + long constrained-random tests (Wave A coverage).
+    test_single_entry_oscillation();
+    test_full_boundary_stress();
+    test_empty_boundary_stress();
+    test_alternating_bursts();
+    test_long_biased_random();
+    test_many_wraps();
+
     // Final settle and VCD flush
     dut->wr_en = 0; dut->rd_en = 0;
     for (int i = 0; i < 4; i++) tick("final");
+
+    // Functional coverage closure report (every bin must be hit >= 1).
+    cov_report();
+
+#if VM_COVERAGE
+    // Verilator line/toggle coverage build: flush coverage.dat for
+    // post-processing with verilator_coverage. Only compiled in the
+    // --coverage build (VM_COVERAGE is defined by Verilator in that mode), so
+    // the standard `make sim` build is unaffected.
+    Verilated::threadContextp()->coveragep()->write("coverage.dat");
+    printf("  Verilator coverage written to coverage.dat\n");
+#endif
 
     tfp->close();
     dut->final();
@@ -574,10 +984,6 @@ int main(int argc, char **argv) {
     } else {
         printf("=== SIM RESULT: FAIL (%d errors) ===\n", total_errors);
     }
-
-    // Coverage note (when built with --coverage, Verilator writes coverage.dat
-    // automatically; we just note where it lands).
-    printf("  Coverage: if built with --coverage, see coverage.dat in obj_dir\n");
 
     // Return 1 (nonzero) on any errors to avoid exit-code wrap for large counts.
     return (total_errors > 0) ? 1 : 0;

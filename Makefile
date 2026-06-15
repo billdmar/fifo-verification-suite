@@ -20,14 +20,21 @@ DEPTHS := 4 8 16 64 256
 
 # Sources
 RTL_TOP  := rtl/sync_fifo.sv
+ASYNC_TOP := rtl/async_fifo.sv
 TB_SRC   := tb/tb_sync_fifo.cpp
 BMC_SCR  := formal/sync_fifo_bmc.sby
 PROVE_SCR := formal/sync_fifo.sby
 COVER_SCR := formal/sync_fifo_cover.sby
+LIVE_SCR  := formal/sync_fifo_live.sby
+ASYNC_BMC_SCR   := formal/async_fifo_bmc.sby
+ASYNC_COVER_SCR := formal/async_fifo_cover.sby
+ASYNC_PROVE_SCR := formal/async_fifo_prove.sby
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint synth formal-bmc formal-prove formal-cover formal sim sim-sweep sim-fault all clean
+.PHONY: help lint lint-async synth formal-bmc formal-prove formal-cover formal-live formal \
+        formal-async-bmc formal-async-cover formal-async-prove formal-async \
+        sim sim-sweep sim-fault sim-coverage all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -42,6 +49,11 @@ help:
 ## lint         : Lint RTL with Verilator -Wall
 lint:
 	$(ENV) verilator --lint-only -Wall --top-module sync_fifo $(RTL_TOP)
+
+##─────────────────────────────────────────────────────────────────────────────
+## lint-async   : Lint the async (dual-clock) FIFO with Verilator -Wall
+lint-async:
+	$(ENV) verilator --lint-only -Wall --top-module async_fifo $(ASYNC_TOP)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## synth        : Elaborate + synthesise with Yosys and print stats
@@ -67,8 +79,32 @@ formal-cover:
 	$(ENV) sby -f $(COVER_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal       : Run formal-bmc, formal-prove, and formal-cover
-formal: formal-bmc formal-prove formal-cover
+## formal-live  : Bounded liveness / progress gate (BMC depth 20) via SymbiYosys
+formal-live:
+	$(ENV) sby -f $(LIVE_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-async-bmc   : Async (dual-clock CDC) BMC gate (depth 16, multiclock)
+formal-async-bmc:
+	$(ENV) sby -f $(ASYNC_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-async-cover : Async cover reachability (full, non-empty, gray wrap, round-trip)
+formal-async-cover:
+	$(ENV) sby -f $(ASYNC_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-async-prove : Async k-induction (informational — basecase passes, step open)
+formal-async-prove:
+	$(ENV) sby -f $(ASYNC_PROVE_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-async : Run async BMC + cover (the async formal gate)
+formal-async: formal-async-bmc formal-async-cover
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal       : Run all sync + async formal gates (bmc, prove, cover, live, async)
+formal: formal-bmc formal-prove formal-cover formal-live formal-async
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH); VCD -> docs/waveforms/
@@ -109,8 +145,21 @@ sim-fault:
 	fi
 
 ##─────────────────────────────────────────────────────────────────────────────
-## all          : CI gate set — lint synth formal-bmc sim
-all: lint synth formal-bmc sim
+## sim-coverage : Build with --coverage, run TB, post-process coverage.dat
+sim-coverage:
+	rm -rf obj_dir_cov coverage.dat logs_annotated
+	$(ENV) verilator --cc --exe --build -Wall --trace --coverage \
+	  -GDEPTH=$(DEPTH) \
+	  --top-module sync_fifo \
+	  $(RTL_TOP) $(TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH)" \
+	  -Mdir obj_dir_cov -o sim_fifo_cov
+	./obj_dir_cov/sim_fifo_cov
+	$(ENV) verilator_coverage --annotate logs_annotated coverage.dat
+
+##─────────────────────────────────────────────────────────────────────────────
+## all          : CI gate set — lint synth formal-bmc formal-live formal-async sim
+all: lint lint-async synth formal-bmc formal-live formal-async sim
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
@@ -120,6 +169,11 @@ clean:
 	rm -rf formal/sync_fifo_prove/
 	rm -rf formal/sync_fifo/
 	rm -rf formal/sync_fifo_cover/
+	rm -rf formal/sync_fifo_live/
+	rm -rf formal/async_fifo_bmc/
+	rm -rf formal/async_fifo_cover/
+	rm -rf formal/async_fifo_prove/
+	rm -rf logs_annotated/
 	rm -f  *.vcd
 	rm -f  coverage.dat
 	rm -f  logfile.txt
