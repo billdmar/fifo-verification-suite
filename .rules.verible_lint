@@ -1,5 +1,5 @@
 # =============================================================================
-# Verible lint rule configuration — sync-fifo-formal
+# Verible lint rule configuration — SystemVerilog FIFO Verification Suite
 #
 # Read automatically by `verible-verilog-lint` when run from the repo root
 # (the tool walks up from each source file looking for `.rules.verible_lint`).
