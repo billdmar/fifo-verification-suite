@@ -1,0 +1,19 @@
+[options]
+mode prove
+depth 15
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo_ecc.sv
+# NO -DFORMAL_DATA: the SECDED fault-injection ($anyconst error mask + tracker)
+# is omitted so the pointer/count/flag invariants close k-induction (PROVEN). The
+# ECC encode/decode layer is purely combinational and does not touch the pointers,
+# so the inductive core is identical to sync_fifo's; the correct/detect behaviour
+# is proven exhaustively by the BMC gate instead.
+chparam -set DEPTH 8 sync_fifo_ecc
+prep -top sync_fifo_ecc
+
+[files]
+rtl/sync_fifo_ecc.sv

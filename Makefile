@@ -56,6 +56,11 @@ PKTFIFO_TOP     := rtl/axis_pkt_fifo.sv
 PKTFIFO_TB_SRC  := tb/tb_axis_pkt_fifo.cpp
 PKTFIFO_BMC_SCR    := formal/axis_pkt_fifo_bmc.sby
 PKTFIFO_COVER_SCR  := formal/axis_pkt_fifo_cover.sby
+ECC_TOP         := rtl/sync_fifo_ecc.sv
+ECC_TB_SRC      := tb/tb_sync_fifo_ecc.cpp
+ECC_BMC_SCR     := formal/sync_fifo_ecc_bmc.sby
+ECC_COVER_SCR   := formal/sync_fifo_ecc_cover.sby
+ECC_PROVE_SCR   := formal/sync_fifo_ecc_prove.sby
 
 # Asymmetric-width FIFO sim config (override: make sim-width-fifo WR_WIDTH=8 RD_WIDTH=32)
 WR_WIDTH     ?= 32
@@ -66,21 +71,22 @@ SUB_WORD_BIG ?= 0
 # Verible (style/lint gate). On CI it is on PATH; locally pass the full path:
 #   make lint-verible VERIBLE=$$HOME/verible/bin/verible-verilog-lint
 VERIBLE ?= verible-verilog-lint
-VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv rtl/axis_width_conv.sv rtl/axis_pkt_fifo.sv rtl/demo_top.sv
+VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv rtl/axis_width_conv.sv rtl/axis_pkt_fifo.sv rtl/sync_fifo_ecc.sv rtl/demo_top.sv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
+.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-ecc lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
         formal-fwft-bmc formal-fwft-cover formal-fwft-prove formal-fwft \
         formal-width-bmc formal-width-cover formal-width-up-bmc formal-width-up-cover formal-width \
         formal-axisconv-bmc formal-axisconv-cover formal-axisconv \
         formal-pktfifo-bmc formal-pktfifo-cover formal-pktfifo \
+        formal-ecc-bmc formal-ecc-cover formal-ecc-prove formal-ecc \
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
         sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
-        sim-pktfifo sim-pktfifo-fault \
-        sim-coverage fpga-report bitstream mutate perf-report waveforms all clean
+        sim-pktfifo sim-pktfifo-fault sim-ecc sim-ecc-fault \
+        sim-coverage fpga-report bitstream mutate mutate-async mutate-axis perf-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -127,6 +133,11 @@ lint-axisconv:
 ## lint-pktfifo : Lint the store-and-forward packet FIFO with Verilator -Wall
 lint-pktfifo:
 	$(ENV) verilator --lint-only -Wall --top-module axis_pkt_fifo $(PKTFIFO_TOP)
+
+##─────────────────────────────────────────────────────────────────────────────
+## lint-ecc     : Lint the SECDED ECC FIFO with Verilator -Wall
+lint-ecc:
+	$(ENV) verilator --lint-only -Wall --top-module sync_fifo_ecc $(ECC_TOP)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## lint-demo    : Lint the synthesizable demo top (loopback through the converters)
@@ -271,8 +282,27 @@ formal-pktfifo-cover:
 formal-pktfifo: formal-pktfifo-bmc formal-pktfifo-cover
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal       : Run all sync + async + AXI + FWFT + width + converter formal gates
-formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo
+## formal-ecc-bmc   : SECDED FIFO — exhaustive correct/detect over all error positions (depth 16)
+formal-ecc-bmc:
+	$(ENV) sby -f $(ECC_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-ecc-cover : SECDED FIFO cover witnesses (corrected single / detected double)
+formal-ecc-cover:
+	$(ENV) sby -f $(ECC_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-ecc-prove : SECDED FIFO pointer/count/flag k-induction PROVEN (depth 15)
+formal-ecc-prove:
+	$(ENV) sby -f $(ECC_PROVE_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-ecc   : Run ECC FIFO BMC + cover + k-induction prove (the ECC formal gate)
+formal-ecc: formal-ecc-bmc formal-ecc-cover formal-ecc-prove
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal       : Run all sync + async + AXI + FWFT + width + converter + packet + ECC formal gates
+formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
@@ -395,6 +425,35 @@ sim-pktfifo-fault:
 	fi
 
 ##─────────────────────────────────────────────────────────────────────────────
+## sim-ecc      : Build + run the SECDED ECC FIFO TB (clean-path round-trip + flag quiescence)
+sim-ecc:
+	rm -rf obj_dir_ecc
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GDEPTH=$(DEPTH) \
+	  --top-module sync_fifo_ecc \
+	  $(ECC_TOP) $(ECC_TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH)" \
+	  -Mdir obj_dir_ecc -o sim_ecc
+	./obj_dir_ecc/sim_ecc
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-ecc-fault : ECC FIFO anti-vacuity — SUCCEEDS only if the checker catches an injected fault
+sim-ecc-fault:
+	rm -rf obj_dir_ecc
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GDEPTH=$(DEPTH) \
+	  --top-module sync_fifo_ecc \
+	  $(ECC_TOP) $(ECC_TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DINJECT_FAULT" \
+	  -Mdir obj_dir_ecc -o sim_ecc
+	@if ./obj_dir_ecc/sim_ecc; then \
+	  echo "ERROR: fault was NOT caught — ECC scoreboard is vacuous!"; \
+	  exit 1; \
+	else \
+	  echo "PASS: fault correctly caught by ECC scoreboard."; \
+	fi
+
+##─────────────────────────────────────────────────────────────────────────────
 ## sim-width-fifo : Build + run the asymmetric-width FIFO TB (WR_WIDTH/RD_WIDTH/DEPTH_NARROW/SUB_WORD_BIG)
 sim-width-fifo:
 	rm -rf obj_dir_width
@@ -476,7 +535,7 @@ waveforms:
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT/width/converter), sim
-all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-demo synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo sim sim-fwft sim-width-fifo sim-pktfifo
+all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-ecc lint-demo synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc sim sim-fwft sim-width-fifo sim-pktfifo sim-ecc
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
@@ -503,6 +562,10 @@ clean:
 	rm -rf formal/axis_width_conv_cover/
 	rm -rf formal/axis_pkt_fifo_bmc/
 	rm -rf formal/axis_pkt_fifo_cover/
+	rm -rf formal/sync_fifo_ecc_bmc/
+	rm -rf formal/sync_fifo_ecc_cover/
+	rm -rf formal/sync_fifo_ecc_prove/
+	rm -rf obj_dir_ecc/
 	rm -rf logs_annotated/
 	rm -rf tb/sim_build/ tb/__pycache__/ tb/lib tb/results.xml
 	rm -f  *.vcd
