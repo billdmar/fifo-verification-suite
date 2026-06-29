@@ -80,7 +80,7 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
         sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
         sim-pktfifo sim-pktfifo-fault \
-        sim-coverage fpga-report bitstream mutate waveforms all clean
+        sim-coverage fpga-report bitstream mutate perf-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -461,8 +461,13 @@ bitstream:
 mutate:
 	$(ENV) cd mcy && rm -rf database tasks && mcy init && mcy run -j$(MCY_JOBS) && mcy status
 
-## MCY_JOBS / MCY_SIZE override parallelism + mutation count for `make mutate`
+## MCY_JOBS override parallelism for `make mutate`
 MCY_JOBS ?= 4
+
+##─────────────────────────────────────────────────────────────────────────────
+## perf-report  : Cycle-accurate throughput/latency characterization for sync_fifo
+perf-report:
+	./scripts/perf_report.sh
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## waveforms    : Regenerate docs/waveforms/*.svg from the sim VCD (needs `make sim`)
