@@ -101,9 +101,13 @@ module sync_fifo #(
     assign count = wptr - rptr;
 
     // Thresholds derived combinationally from count (no separate counter, so a
-    // flag can never drift out of sync with count).
-    assign almost_full  = (count >= ALMOST_FULL_THRESH[$clog2(DEPTH):0]);
-    assign almost_empty = (count <= ALMOST_EMPTY_THRESH[$clog2(DEPTH):0]);
+    // flag can never drift out of sync with count). The comparison is done in
+    // full integer width: count zero-extends to the 32-bit parameter so no high
+    // bits are ever silently dropped (the earlier explicit [$clog2(DEPTH):0]
+    // slice could mask an out-of-range threshold; the elaboration guards above
+    // already reject those, and a full-width compare is the honest expression).
+    assign almost_full  = (32'(count) >= ALMOST_FULL_THRESH);
+    assign almost_empty = (32'(count) <= ALMOST_EMPTY_THRESH);
 
     //--------------------------------------------------------------------------
     // Write port.

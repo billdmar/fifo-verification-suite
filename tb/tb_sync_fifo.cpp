@@ -64,9 +64,23 @@
 #  define DEPTH_PARAM 16
 #endif
 
+// DATA_WIDTH is passed as -CFLAGS "-DDW_PARAM=N" matching the -GDATA_WIDTH=N the
+// Makefile hands Verilator, so the single .cpp validates any width (1..64)
+// without source edits — the width sweep (make sim-width-sweep) exercises the
+// stated parameter range bounds {1, 8, 64}.
+#ifndef DW_PARAM
+#  define DW_PARAM 8
+#endif
+
 static constexpr int DEPTH           = DEPTH_PARAM;
-// DATA_WIDTH is fixed at 8 by the build matrix (the Makefile only varies DEPTH).
-static constexpr int DATA_WIDTH      = 8;   // default; DUT uses 8
+static constexpr int DATA_WIDTH      = DW_PARAM;   // must match -GDATA_WIDTH
+// Mask of the valid data bits. The DUT keeps only DATA_WIDTH bits, but the
+// Verilator input port is not masked until eval() — so the golden model must
+// mask wr_data itself, otherwise a width < 8 run would push un-truncated bytes
+// to the golden queue and false-fail the rd_data compare. Built shift-safe for
+// DATA_WIDTH==64 (a 64-bit shift is UB in C++).
+static constexpr uint64_t DATA_MASK  =
+    (DATA_WIDTH >= 64) ? ~0ull : ((1ull << DATA_WIDTH) - 1ull);
 // Thresholds must match the DUT defaults: DEPTH-2 and 2
 static constexpr int ALMOST_FULL_TH  = DEPTH - 2;
 static constexpr int ALMOST_EMPTY_TH = 2;
@@ -257,6 +271,9 @@ static void sample_transactions(const char *context) {
         fault_ctr++;
         if (fault_ctr % 3 == 0) wdata ^= 0xFF;
 #endif
+        // wr_data is already masked to DATA_WIDTH at the top of tick_impl (see
+        // there for why the TB, not Verilator, owns input masking), so the
+        // golden value matches exactly what the DUT will store and return.
         gold_q.push(wdata);
     }
 
@@ -273,6 +290,15 @@ static void sample_transactions(const char *context) {
 // Full tick implementation
 // ---------------------------------------------------------------------------
 static void tick_impl(const char *context) {
+    // Mask wr_data to DATA_WIDTH BEFORE anything samples it. Verilator does not
+    // truncate narrow inputs — it trusts the testbench to honor the port width —
+    // so a sub-8-bit DUT would otherwise see the full byte the tests drive (e.g.
+    // i+1 or an LFSR value) on its narrow port, while the masked golden model
+    // would disagree. Masking the driven value here makes the single source of
+    // truth correct for every DATA_WIDTH and every drive path that funnels
+    // through tick().
+    dut->wr_data &= DATA_MASK;
+
     // Capture inputs and combinational flags BEFORE the posedge so coverage can
     // attribute accepted vs ignored operations against the pre-edge state.
     bool cov_wr_en    = (bool)dut->wr_en;
