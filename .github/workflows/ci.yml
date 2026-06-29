@@ -42,6 +42,9 @@ jobs:
       - name: Lint — FWFT (show-ahead) FIFO (Verilator)
         run: make lint-fwft
 
+      - name: Lint — asymmetric-width FIFO, both directions (Verilator)
+        run: make lint-width
+
       - name: Lint — Verible style gate (all RTL)
         run: make lint-verible
 
@@ -75,6 +78,12 @@ jobs:
       - name: Formal — FWFT cover reachability (gate)
         run: make formal-fwft-cover
 
+      - name: Formal — asymmetric-width FIFO width-crossing BMC depth 14 (gate)
+        run: make formal-width-bmc
+
+      - name: Formal — asymmetric-width FIFO cover reachability (gate)
+        run: make formal-width-cover
+
       - name: Simulate — Verilator TB depth 8 + functional coverage (gate)
         run: make sim
 
@@ -105,6 +114,12 @@ jobs:
 
       - name: Self-test — FWFT fault injection must be caught (gate)
         run: make sim-fwft-fault
+
+      - name: Simulate — asymmetric-width FIFO sweep (2:1/4:1/8:1, both dirs+endian) (gate)
+        run: make sim-width-fifo-sweep
+
+      - name: Self-test — width-FIFO fault injection must be caught (gate)
+        run: make sim-width-fifo-fault
 
       # ── Informational — k-induction proofs (may be slow / not fully closed)
       - name: Formal — sync k-induction proof depth 15 (informational)
