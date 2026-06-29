@@ -190,9 +190,14 @@ static void test_backtoback_packets() {
     printf("[TEST 2] Back-to-back packets...\n");
     do_reset(4);
     uint64_t v = 1;
+    // Packet lengths are kept <= DEPTH-1 deliberately: store-and-forward REQUIRES
+    // the whole packet to fit before its TLAST commits (documented producer
+    // contract / formal m_pkt_fits assume in axis_pkt_fifo.sv). A packet of
+    // DEPTH+ beats would, by design, never commit — that is the module's stated
+    // limitation, not a behaviour this conformant-producer TB exercises.
     for (int pkt = 0; pkt < 30; pkt++) {
         int len = 1 + (pkt % 4);
-        if (len > DEPTH) len = DEPTH;
+        if (len > DEPTH - 1) len = DEPTH - 1;
         for (int i = 0; i < len; i++) send_beat(v++, (i == len - 1), 1);
         idle(2, 1);
     }

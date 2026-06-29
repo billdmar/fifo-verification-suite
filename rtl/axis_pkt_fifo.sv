@@ -13,6 +13,19 @@
 // Notes       : Verified with SymbiYosys (BMC + cover) via inlined `ifdef FORMAL
 //               SVA. Lints clean under Verilator -Wall and the Verible gate.
 //
+// LIMITATION — MAX PACKET SIZE (inherent to store-and-forward):
+//   A packet must be at most DEPTH-1 beats. A packet of DEPTH-or-more beats with
+//   no TLAST yet fills the ring (s_axis_tready drops) before its TLAST can be
+//   written, so the packet never commits and nothing of it is readable — the FIFO
+//   wedges. This is fundamental to *any* store-and-forward buffer (the whole
+//   packet must fit before it can be released); cut-through (axis_fifo) has no
+//   such bound. The environment is therefore REQUIRED to bound packet length to
+//   DEPTH-1; this is captured formally below as an assumption
+//   (m_pkt_fits: in-flight beats < DEPTH), so all proofs hold *given a conformant
+//   producer*, and is the producer's contract, not a defect. (The suite-wide
+//   "never deadlocks" guarantee is about the plain FIFOs' full⊕empty progress; it
+//   does not extend to a store-and-forward buffer fed an oversized packet.)
+//
 // Why store-and-forward (the new property class vs. axis_fifo):
 //   axis_fifo forwards every buffered beat as soon as it is present (cut-through
 //   over a FIFO). axis_pkt_fifo adds a COMMIT POINTER: beats become readable only
@@ -196,6 +209,20 @@ module axis_pkt_fifo #(
     end
 
     // -------------------------------------------------------------------------
+    // GROUP 0 — ENVIRONMENT CONTRACT: bounded packet length (the store-and-forward
+    //   precondition documented in the header). The in-flight (uncommitted) beat
+    //   count `wptr - commit_ptr` must stay below DEPTH, i.e. a packet is at most
+    //   DEPTH-1 beats — otherwise the ring fills before TLAST and the buffer wedges
+    //   (inherent to store-and-forward). A conformant producer guarantees this; we
+    //   ASSUME it so the proofs characterize correct behaviour under the contract,
+    //   and the cover c_near_full (GROUP 5) shows the bound is exercised right up to
+    //   the limit, not vacuously avoided.
+    // -------------------------------------------------------------------------
+    always @(posedge clk) begin
+        if (rst_n) m_pkt_fits: assume ((wptr - commit_ptr) < DEPTH[ADDR_WIDTH:0]);
+    end
+
+    // -------------------------------------------------------------------------
     // GROUP 1 — AXI master protocol compliance (stable-until-accepted, no spurious).
     // -------------------------------------------------------------------------
     always @(posedge clk) begin
@@ -311,6 +338,10 @@ module axis_pkt_fifo #(
         c_deliver:   cover (rst_n && out_accept);
         c_tlast_out: cover (rst_n && out_accept && m_axis_tlast);     // a packet end emerges
         c_two_pkts:  cover (rst_n && (pkt_count >= 2));                // >=2 complete packets buffered
+        // In-flight packet right at the contract limit (DEPTH-1 uncommitted beats):
+        // proves the bounded-packet assumption m_pkt_fits is exercised to the edge,
+        // not vacuously avoiding the near-full region.
+        c_near_full: cover (rst_n && ((wptr - commit_ptr) == (DEPTH[ADDR_WIDTH:0] - 1'b1)));
     end
 
     // Store-and-forward in action: a partial packet is held back (data written

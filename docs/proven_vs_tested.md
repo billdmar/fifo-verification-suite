@@ -103,3 +103,12 @@ Verilator C++ testbench with a `std::queue` golden-model scoreboard:
   the `SYNC_STAGES` flop chain, not provable by functional formal.
 - **Vendor-FPGA timing**: the committed FPGA numbers are open-source-flow
   (Yosys + nextpnr); Lattice Diamond/Radiant or Xilinx Vivado will differ.
+- **`axis_pkt_fifo` with an oversized packet**: store-and-forward *inherently*
+  needs the whole packet to fit before its TLAST commits, so a packet of
+  `DEPTH`-or-more beats wedges the buffer (it can never commit). This is a
+  **producer contract** (packets ≤ `DEPTH-1` beats), documented in the module
+  header and made explicit as the formal assumption `m_pkt_fits` ((`wptr -
+  commit_ptr`) < DEPTH); the cover `c_near_full` shows the bound is exercised to
+  the limit. The suite-wide no-deadlock guarantee is about the single-clock
+  plain/FWFT FIFOs' `!full || !empty` progress and does **not** extend to a
+  store-and-forward buffer fed a non-conformant (oversized) packet.

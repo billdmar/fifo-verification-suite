@@ -16,8 +16,11 @@ make perf-report           # default DEPTHs 8 16 64
 
 ## Throughput (accepted beats / cycle)
 
-`thru` is the sustained delivered rate; `expected` is the textbook steady-state
-`min(producer_rate, consumer_rate)`. The design hits the theoretical limit.
+`thru` is the sustained *measured* delivered rate (accepted read-beats ÷ cycles);
+`expected` is the deterministic textbook steady-state `min(producer_rate,
+consumer_rate)`. The design hits the theoretical limit. Read latency below is
+*measured by observation* (count edges until the popped word appears on
+`rd_data`), not asserted.
 
 | Profile (wr% / rd%) | DEPTH=8 | DEPTH=16 | expected ≈ |
 |---------------------|---------|----------|------------|

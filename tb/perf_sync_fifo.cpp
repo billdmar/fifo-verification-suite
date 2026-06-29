@@ -66,23 +66,26 @@ static uint64_t run_profile(int wr_pct, int rd_pct, int cycles) {
     return delivered;
 }
 
-// Measure average first-word latency: cycles from an accepted write into an empty
-// FIFO until that word is readable (rd_data valid). For the registered-read
-// sync_fifo this is deterministically 1 read-cycle after rd_en; we report the
-// observed write→data-available latency for a single word.
-static double measure_latency() {
+// Measure read latency by OBSERVATION (not a hardcoded constant): push one known
+// word into an empty FIFO, assert rd_en, and count clock edges until rd_data
+// actually equals that word. For the registered-read sync_fifo this resolves to
+// 1; measuring it (rather than asserting it) keeps the number honest and would
+// catch a latency regression. Returns -1 if the word never appears within a
+// bounded window (defensive).
+static int measure_latency() {
     reset();
+    const uint8_t W = 0xA5;
     // Push exactly one word.
-    dut->wr_en = 1; dut->wr_data = 0xA5; dut->rd_en = 0; step();
+    dut->wr_en = 1; dut->wr_data = W; dut->rd_en = 0; step();
     dut->wr_en = 0;
-    // Now assert rd_en; rd_data is valid one cycle later (registered read).
-    int latency = 0;
+    // Assert rd_en and count edges until rd_data reflects the popped word.
     dut->rd_en = 1;
-    // Count cycles until empty deasserts->data path: registered read = 1 cycle.
-    // We simply report the architectural read latency (1) confirmed by the TB.
-    step(); latency = 1;
+    for (int cyc = 1; cyc <= 8; cyc++) {
+        step();
+        if ((uint8_t)dut->rd_data == W) { dut->rd_en = 0; return cyc; }
+    }
     dut->rd_en = 0;
-    return (double)latency;
+    return -1;
 }
 
 int main(int argc, char **argv) {
@@ -109,7 +112,7 @@ int main(int argc, char **argv) {
         double expect = (p.wr < p.rd ? p.wr : p.rd) / 100.0;   // min(rates)
         printf("  %-22s %12.3f  %12.3f\n", p.name, thru, expect);
     }
-    printf("# read latency (registered-output): %.0f cycle\n", measure_latency());
+    printf("# read latency (registered-output, measured): %d cycle\n", measure_latency());
 
     dut->final();
     delete dut;
