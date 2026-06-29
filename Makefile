@@ -42,20 +42,32 @@ FWFT_TOP        := rtl/sync_fifo_fwft.sv
 FWFT_TB_SRC     := tb/tb_sync_fifo_fwft.cpp
 FWFT_BMC_SCR    := formal/sync_fifo_fwft_bmc.sby
 FWFT_COVER_SCR  := formal/sync_fifo_fwft_cover.sby
+WIDTH_TOP       := rtl/sync_fifo_width.sv
+WIDTH_TB_SRC    := tb/tb_sync_fifo_width.cpp
+WIDTH_BMC_SCR   := formal/sync_fifo_width_bmc.sby
+WIDTH_COVER_SCR := formal/sync_fifo_width_cover.sby
+
+# Asymmetric-width FIFO sim config (override: make sim-width-fifo WR_WIDTH=8 RD_WIDTH=32)
+WR_WIDTH     ?= 32
+RD_WIDTH     ?= 8
+DEPTH_NARROW ?= 16
+SUB_WORD_BIG ?= 0
 
 # Verible (style/lint gate). On CI it is on PATH; locally pass the full path:
 #   make lint-verible VERIBLE=$$HOME/verible/bin/verible-verilog-lint
 VERIBLE ?= verible-verilog-lint
-VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv
+VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint lint-async lint-axis lint-fwft lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
+.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
         formal-fwft-bmc formal-fwft-cover formal-fwft \
+        formal-width-bmc formal-width-cover formal-width \
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
-        sim-fwft sim-fwft-fault sim-coverage fpga-report waveforms all clean
+        sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
+        sim-coverage fpga-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -85,6 +97,12 @@ lint-axis:
 ## lint-fwft    : Lint the FWFT (first-word-fall-through) FIFO with Verilator -Wall
 lint-fwft:
 	$(ENV) verilator --lint-only -Wall --top-module sync_fifo_fwft $(FWFT_TOP)
+
+##─────────────────────────────────────────────────────────────────────────────
+## lint-width   : Lint the asymmetric-width FIFO (both directions) with Verilator -Wall
+lint-width:
+	$(ENV) verilator --lint-only -Wall --top-module sync_fifo_width $(WIDTH_TOP)
+	$(ENV) verilator --lint-only -Wall -GWR_WIDTH=8 -GRD_WIDTH=32 --top-module sync_fifo_width $(WIDTH_TOP)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## lint-verible : Style/lint gate via Verible (config in .rules.verible_lint)
@@ -167,8 +185,22 @@ formal-fwft-cover:
 formal-fwft: formal-fwft-bmc formal-fwft-cover
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal       : Run all sync + async + AXI + FWFT formal gates
-formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft
+## formal-width-bmc   : Asymmetric-width FIFO width-crossing integrity BMC (2:1 instance, depth 14)
+formal-width-bmc:
+	$(ENV) sby -f $(WIDTH_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width-cover : Asymmetric-width FIFO cover witnesses (depth 30)
+formal-width-cover:
+	$(ENV) sby -f $(WIDTH_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width : Run asymmetric-width FIFO BMC + cover (the width formal gate)
+formal-width: formal-width-bmc formal-width-cover
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal       : Run all sync + async + AXI + FWFT + width formal gates
+formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft formal-width
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
@@ -262,6 +294,45 @@ sim-fwft-fault:
 	fi
 
 ##─────────────────────────────────────────────────────────────────────────────
+## sim-width-fifo : Build + run the asymmetric-width FIFO TB (WR_WIDTH/RD_WIDTH/DEPTH_NARROW/SUB_WORD_BIG)
+sim-width-fifo:
+	rm -rf obj_dir_width
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GWR_WIDTH=$(WR_WIDTH) -GRD_WIDTH=$(RD_WIDTH) -GDEPTH_NARROW=$(DEPTH_NARROW) -GSUB_WORD_BIG=$(SUB_WORD_BIG) \
+	  --top-module sync_fifo_width \
+	  $(WIDTH_TOP) $(WIDTH_TB_SRC) \
+	  -CFLAGS "-DWR_WIDTH_PARAM=$(WR_WIDTH) -DRD_WIDTH_PARAM=$(RD_WIDTH) -DDEPTH_NARROW_PARAM=$(DEPTH_NARROW) -DSUB_WORD_BIG=$(SUB_WORD_BIG)" \
+	  -Mdir obj_dir_width -o sim_width
+	./obj_dir_width/sim_width
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-width-fifo-sweep : Run the width FIFO TB across both directions, ratios, and endianness
+sim-width-fifo-sweep:
+	@set -e; \
+	for cfg in "32 8 0" "8 32 0" "32 8 1" "8 32 1" "16 4 0" "4 16 1" "64 8 0"; do \
+	  set -- $$cfg; \
+	  echo ""; echo "════ width FIFO WR=$$1 RD=$$2 SUB_WORD_BIG=$$3 ════"; \
+	  $(MAKE) sim-width-fifo WR_WIDTH=$$1 RD_WIDTH=$$2 SUB_WORD_BIG=$$3 || exit 1; \
+	done
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-width-fifo-fault : width FIFO anti-vacuity — SUCCEEDS only if the checker catches an injected fault
+sim-width-fifo-fault:
+	rm -rf obj_dir_width
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GWR_WIDTH=$(WR_WIDTH) -GRD_WIDTH=$(RD_WIDTH) -GDEPTH_NARROW=$(DEPTH_NARROW) -GSUB_WORD_BIG=$(SUB_WORD_BIG) \
+	  --top-module sync_fifo_width \
+	  $(WIDTH_TOP) $(WIDTH_TB_SRC) \
+	  -CFLAGS "-DWR_WIDTH_PARAM=$(WR_WIDTH) -DRD_WIDTH_PARAM=$(RD_WIDTH) -DDEPTH_NARROW_PARAM=$(DEPTH_NARROW) -DSUB_WORD_BIG=$(SUB_WORD_BIG) -DINJECT_FAULT" \
+	  -Mdir obj_dir_width -o sim_width
+	@if ./obj_dir_width/sim_width; then \
+	  echo "ERROR: fault was NOT caught — width-FIFO scoreboard is vacuous!"; \
+	  exit 1; \
+	else \
+	  echo "PASS: fault correctly caught by width-FIFO scoreboard."; \
+	fi
+
+##─────────────────────────────────────────────────────────────────────────────
 ## sim-coverage : Build with --coverage, run TB, post-process coverage.dat
 sim-coverage:
 	rm -rf obj_dir_cov coverage.dat logs_annotated
@@ -285,8 +356,8 @@ waveforms:
 	python3 scripts/gen_waveforms.py
 
 ##─────────────────────────────────────────────────────────────────────────────
-## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT), sim
-all: lint lint-async lint-axis lint-fwft synth formal-bmc formal-live formal-async formal-axis formal-fwft sim sim-fwft
+## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT/width), sim
+all: lint lint-async lint-axis lint-fwft lint-width synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width sim sim-fwft sim-width-fifo
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
@@ -304,6 +375,8 @@ clean:
 	rm -rf formal/axis_fifo_cover/
 	rm -rf formal/sync_fifo_fwft_bmc/
 	rm -rf formal/sync_fifo_fwft_cover/
+	rm -rf formal/sync_fifo_width_bmc/
+	rm -rf formal/sync_fifo_width_cover/
 	rm -rf logs_annotated/
 	rm -rf tb/sim_build/ tb/__pycache__/ tb/lib tb/results.xml
 	rm -f  *.vcd

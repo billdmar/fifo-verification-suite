@@ -1,0 +1,21 @@
+[options]
+mode bmc
+depth 14
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo_width.sv
+# Small instance for SMT tractability: a 2:1 down-sizer (WR=8, RD=4, NARROW=4,
+# RATIO=2) over a shallow 8-beat ring. Exercises multi-beat write packing +
+# single-beat reads, sub-word ordering, and the width-crossing data-integrity
+# tracker. Depth 14 covers a full fill+drain window for this geometry; the 2:1
+# ratio keeps the $anyconst multi-beat tracker tractable for CI (the 4:1 case is
+# functionally identical logic but blows up the SMT unroll). The Verilator TB
+# independently sweeps the larger 4:1 / 8:1 ratios and both directions.
+chparam -set WR_WIDTH 8 -set RD_WIDTH 4 -set DEPTH_NARROW 8 sync_fifo_width
+prep -top sync_fifo_width
+
+[files]
+rtl/sync_fifo_width.sv

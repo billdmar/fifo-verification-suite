@@ -34,6 +34,23 @@ are exhaustive over every reachable scenario within that window.
 | No duplicate read / no read-before-write | sync | 20 |
 | All CDC properties — Gray-one-bit, encode, monotonic, no over/underflow, occupancy, no-missed-full, cross-domain data integrity | async (multiclock) | 16 |
 | AXI4-Stream protocol — tvalid/tdata/tlast stable-until-accepted, no loss under backpressure, no spurious valid, end-to-end data/last integrity | axis | 20 |
+| Show-ahead data-at-head + ring invariants + no-dup/no-read-before-write | fwft | 20 |
+| Width-crossing data integrity (`$anyconst` narrow-beat tracker) + pointer/count/flag invariants, no over/underflow | sync_fifo_width | 14 |
+
+**On the asymmetric-width FIFO (`sync_fifo_width`).** The width-crossing data
+integrity is formally proven by BMC (depth 14) on a representative **2:1
+down-sizer** instance (`WR_WIDTH=8`, `RD_WIDTH=4`, `NARROW=4`, `DEPTH_NARROW=8`,
+little sub-word order). A companion cover (`c_track_roundtrip`) exhibits a
+concrete write→read round-trip of a solver-chosen tracked narrow beat, proving
+the `$anyconst` integrity assertion is **non-vacuous** (it is genuinely checked on
+a reachable index, not trivially satisfied). The `$anyconst` tracker proves every
+reachable narrow beat is delivered in FIFO order at the correct sub-word position.
+**Higher ratios (4:1, 8:1), the up-sizer direction (`WR_WIDTH<RD_WIDTH`), and big
+sub-word order are validated by the Verilator constrained-random testbench**
+against a narrow-granularity golden model (`make sim-width-fifo-sweep` covers
+2:1/4:1/8:1, little+big, both directions), with anti-vacuity proven by fault
+injection (`make sim-width-fifo-fault`). In short: the formal instance proves the
+pack/unpack data-flow on one geometry; simulation covers the geometric sweep.
 
 **Why the `$anyconst` data-integrity properties are BMC-bounded, not proven:**
 the slot tracker is a shadow model that cannot be tied to the DUT's internal
