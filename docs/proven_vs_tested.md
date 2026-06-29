@@ -42,9 +42,12 @@ integrity is formally proven by BMC (depth 14) on a representative **2:1
 down-sizer** instance (`WR_WIDTH=8`, `RD_WIDTH=4`, `NARROW=4`, `DEPTH_NARROW=8`,
 little sub-word order). A companion cover (`c_track_roundtrip`) exhibits a
 concrete write→read round-trip of a solver-chosen tracked narrow beat, proving
-the `$anyconst` integrity assertion is **non-vacuous** (it is genuinely checked on
-a reachable index, not trivially satisfied). The `$anyconst` tracker proves every
-reachable narrow beat is delivered in FIFO order at the correct sub-word position.
+the `$anyconst` integrity assertion is **non-vacuous** — it witnesses that *at
+least one* tracked index is reachable and genuinely checked, not that every one of
+the 32 possible `f_track_idx` values fires (indices not reachable in the depth-14
+window pass inertly and cannot mask a counterexample). BMC discharges the
+assertion for *all* index values, so within the window every reachable narrow beat
+is proven delivered in FIFO order at the correct sub-word position.
 **Higher ratios (4:1, 8:1), the up-sizer direction (`WR_WIDTH<RD_WIDTH`), and big
 sub-word order are validated by the Verilator constrained-random testbench**
 against a narrow-granularity golden model (`make sim-width-fifo-sweep` covers
