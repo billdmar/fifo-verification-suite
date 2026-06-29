@@ -45,6 +45,9 @@ jobs:
       - name: Lint — asymmetric-width FIFO, both directions (Verilator)
         run: make lint-width
 
+      - name: Lint — AXI4-Stream width converter, both directions (Verilator)
+        run: make lint-axisconv
+
       - name: Lint — Verible style gate (all RTL)
         run: make lint-verible
 
@@ -83,6 +86,12 @@ jobs:
 
       - name: Formal — asymmetric-width FIFO cover reachability (gate)
         run: make formal-width-cover
+
+      - name: Formal — AXI4-Stream width-converter protocol BMC depth 14 (gate)
+        run: make formal-axisconv-bmc
+
+      - name: Formal — AXI4-Stream width-converter cover reachability (gate)
+        run: make formal-axisconv-cover
 
       - name: Simulate — Verilator TB depth 8 + functional coverage (gate)
         run: make sim
