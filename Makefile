@@ -38,18 +38,24 @@ ASYNC_PROVE_SCR := formal/async_fifo_prove.sby
 AXIS_TOP        := rtl/axis_fifo.sv
 AXIS_BMC_SCR    := formal/axis_fifo_bmc.sby
 AXIS_COVER_SCR  := formal/axis_fifo_cover.sby
+FWFT_TOP        := rtl/sync_fifo_fwft.sv
+FWFT_TB_SRC     := tb/tb_sync_fifo_fwft.cpp
+FWFT_BMC_SCR    := formal/sync_fifo_fwft_bmc.sby
+FWFT_COVER_SCR  := formal/sync_fifo_fwft_cover.sby
 
 # Verible (style/lint gate). On CI it is on PATH; locally pass the full path:
 #   make lint-verible VERIBLE=$$HOME/verible/bin/verible-verilog-lint
 VERIBLE ?= verible-verilog-lint
-VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv
+VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint lint-async lint-axis lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
+.PHONY: help lint lint-async lint-axis lint-fwft lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
-        sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault sim-coverage fpga-report waveforms all clean
+        formal-fwft-bmc formal-fwft-cover formal-fwft \
+        sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
+        sim-fwft sim-fwft-fault sim-coverage fpga-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -74,6 +80,11 @@ lint-async:
 ## lint-axis    : Lint the AXI4-Stream wrapper with Verilator -Wall
 lint-axis:
 	$(ENV) verilator --lint-only -Wall --top-module axis_fifo $(AXIS_TOP) $(RTL_TOP)
+
+##─────────────────────────────────────────────────────────────────────────────
+## lint-fwft    : Lint the FWFT (first-word-fall-through) FIFO with Verilator -Wall
+lint-fwft:
+	$(ENV) verilator --lint-only -Wall --top-module sync_fifo_fwft $(FWFT_TOP)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## lint-verible : Style/lint gate via Verible (config in .rules.verible_lint)
@@ -142,8 +153,22 @@ formal-axis-cover:
 formal-axis: formal-axis-bmc formal-axis-cover
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal       : Run all sync + async + AXI formal gates
-formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis
+## formal-fwft-bmc    : FWFT FIFO show-ahead/integrity BMC (depth 20)
+formal-fwft-bmc:
+	$(ENV) sby -f $(FWFT_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-fwft-cover  : FWFT FIFO cover witnesses (depth 30)
+formal-fwft-cover:
+	$(ENV) sby -f $(FWFT_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-fwft  : Run FWFT BMC + cover (the FWFT formal gate)
+formal-fwft: formal-fwft-bmc formal-fwft-cover
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal       : Run all sync + async + AXI + FWFT formal gates
+formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
@@ -208,6 +233,35 @@ sim-cocotb-fault:
 	  python3 tb_sync_fifo_cocotb.py
 
 ##─────────────────────────────────────────────────────────────────────────────
+## sim-fwft     : Build + run the FWFT (show-ahead) FIFO TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH)
+sim-fwft:
+	rm -rf obj_dir_fwft
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
+	  --top-module sync_fifo_fwft \
+	  $(FWFT_TOP) $(FWFT_TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH)" \
+	  -Mdir obj_dir_fwft -o sim_fwft
+	./obj_dir_fwft/sim_fwft
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-fwft-fault : FWFT anti-vacuity — SUCCEEDS only if the checker catches an injected fault
+sim-fwft-fault:
+	rm -rf obj_dir_fwft
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
+	  --top-module sync_fifo_fwft \
+	  $(FWFT_TOP) $(FWFT_TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH) -DINJECT_FAULT" \
+	  -Mdir obj_dir_fwft -o sim_fwft
+	@if ./obj_dir_fwft/sim_fwft; then \
+	  echo "ERROR: fault was NOT caught — FWFT scoreboard is vacuous!"; \
+	  exit 1; \
+	else \
+	  echo "PASS: fault correctly caught by FWFT scoreboard."; \
+	fi
+
+##─────────────────────────────────────────────────────────────────────────────
 ## sim-coverage : Build with --coverage, run TB, post-process coverage.dat
 sim-coverage:
 	rm -rf obj_dir_cov coverage.dat logs_annotated
@@ -231,8 +285,8 @@ waveforms:
 	python3 scripts/gen_waveforms.py
 
 ##─────────────────────────────────────────────────────────────────────────────
-## all          : CI gate set — lint, synth, formal (sync/async/AXI), sim
-all: lint lint-async lint-axis synth formal-bmc formal-live formal-async formal-axis sim
+## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT), sim
+all: lint lint-async lint-axis lint-fwft synth formal-bmc formal-live formal-async formal-axis formal-fwft sim sim-fwft
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
@@ -248,7 +302,10 @@ clean:
 	rm -rf formal/async_fifo_prove/
 	rm -rf formal/axis_fifo_bmc/
 	rm -rf formal/axis_fifo_cover/
+	rm -rf formal/sync_fifo_fwft_bmc/
+	rm -rf formal/sync_fifo_fwft_cover/
 	rm -rf logs_annotated/
+	rm -rf tb/sim_build/ tb/__pycache__/ tb/lib tb/results.xml
 	rm -f  *.vcd
 	rm -f  coverage.dat
 	rm -f  logfile.txt

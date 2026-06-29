@@ -39,6 +39,9 @@ jobs:
       - name: Lint — AXI4-Stream wrapper (Verilator)
         run: make lint-axis
 
+      - name: Lint — FWFT (show-ahead) FIFO (Verilator)
+        run: make lint-fwft
+
       - name: Lint — Verible style gate (all RTL)
         run: make lint-verible
 
@@ -66,6 +69,12 @@ jobs:
       - name: Formal — sync cover witnesses fill/drain/wrap/round-trip (gate)
         run: make formal-cover
 
+      - name: Formal — FWFT show-ahead/integrity BMC depth 20 (gate)
+        run: make formal-fwft-bmc
+
+      - name: Formal — FWFT cover reachability (gate)
+        run: make formal-fwft-cover
+
       - name: Simulate — Verilator TB depth 8 + functional coverage (gate)
         run: make sim
 
@@ -90,6 +99,12 @@ jobs:
 
       - name: Self-test — cocotb fault injection must be caught (gate)
         run: make sim-cocotb-fault
+
+      - name: Simulate — FWFT (show-ahead) FIFO TB (gate)
+        run: make sim-fwft
+
+      - name: Self-test — FWFT fault injection must be caught (gate)
+        run: make sim-fwft-fault
 
       # ── Informational — k-induction proofs (may be slow / not fully closed)
       - name: Formal — sync k-induction proof depth 15 (informational)
