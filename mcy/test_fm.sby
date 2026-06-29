@@ -1,0 +1,22 @@
+[options]
+mode bmc
+depth 20
+expect pass,fail
+
+[engines]
+smtbmc yices
+
+[script]
+# The mutated sync_fifo comes from mutated.il (replaces the original module); the
+# properties + harness are read from source. Same DEPTH=8 harness as the suite's
+# sync_fifo_bmc gate, so a mutation that violates any assertion in
+# sync_fifo_properties.sv yields a counterexample (FAIL = mutant killed).
+read_rtlil mutated.il
+read -formal -DFORMAL sync_fifo_properties.sv
+read -formal -DFORMAL sync_fifo_mcy_tb.sv
+prep -top sync_fifo_formal_tb
+
+[files]
+mutated.il
+../../../rtl/sync_fifo_properties.sv
+../../sync_fifo_mcy_tb.sv

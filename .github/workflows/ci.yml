@@ -237,3 +237,33 @@ jobs:
           name: demo-top-bitstreams
           path: build/bitstream/demo_top_*.bi*
           if-no-files-found: warn
+
+  # ── Informational — mutation testing (mcy): mutate sync_fifo and measure how
+  #    many mutants the formal suite kills. Non-gating: mutation campaigns are
+  #    slow/variable; the committed kill-rate lives in docs/mutation_testing.md.
+  #    This job re-runs it to keep that number honest. ───────────────────────────
+  mutation:
+    name: Mutation testing sync_fifo (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OSS CAD Suite
+        run: |
+          curl -L -o oss-cad-suite.tgz \
+            https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-06-04/oss-cad-suite-linux-x64-20260604.tgz
+          tar -xzf oss-cad-suite.tgz
+          echo "$PWD/oss-cad-suite/bin" >> $GITHUB_PATH
+
+      - name: Run mutation campaign (mcy → kill-rate)
+        run: make mutate
+
+      - name: Upload mcy database
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcy-mutation-db
+          path: mcy/database/
+          if-no-files-found: warn
