@@ -1,0 +1,7 @@
+# Python testbench dependencies (cocotb flow).
+#
+# NOTE: the OSS CAD Suite already bundles cocotb (2.1.x) and Verilator, so on a
+# machine with the suite sourced you do NOT need to pip-install anything — `make
+# sim-cocotb` works out of the box. This file pins the dependency for anyone
+# running the Python testbench against a standalone Verilator without the suite.
+cocotb>=1.9,<3.0

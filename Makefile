@@ -49,7 +49,7 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
 .PHONY: help lint lint-async lint-axis lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
-        sim sim-sweep sim-width-sweep sim-fault sim-coverage fpga-report waveforms all clean
+        sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault sim-coverage fpga-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -191,6 +191,21 @@ sim-fault:
 	else \
 	  echo "PASS: fault correctly caught by scoreboard."; \
 	fi
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-cocotb   : Python (cocotb) testbench on sync_fifo via Verilator (DEPTH/DATA_WIDTH)
+sim-cocotb:
+	$(ENV) cd tb && FIFO_DEPTH=$(DEPTH) FIFO_DATA_WIDTH=$(DATA_WIDTH) \
+	  python3 tb_sync_fifo_cocotb.py
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-cocotb-fault : cocotb anti-vacuity — the test asserts the checker catches an injected fault
+##                    (FIFO_INJECT_FAULT=1 enables test_fault_injection_is_caught, which itself
+##                    asserts sb.errors>0; it PASSES iff the Python scoreboard fired, so a green
+##                    run here proves the checker is not vacuous).
+sim-cocotb-fault:
+	$(ENV) cd tb && FIFO_DEPTH=$(DEPTH) FIFO_DATA_WIDTH=$(DATA_WIDTH) FIFO_INJECT_FAULT=1 \
+	  python3 tb_sync_fifo_cocotb.py
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-coverage : Build with --coverage, run TB, post-process coverage.dat

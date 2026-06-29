@@ -23,5 +23,10 @@ logfile.txt
 __pycache__/
 *.pyc
 
+# cocotb (build dir, results, and the macOS @executable_path/../lib dylib shim)
+tb/sim_build/
+results.xml
+tb/lib
+
 # macOS
 .DS_Store

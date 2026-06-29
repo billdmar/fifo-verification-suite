@@ -81,6 +81,16 @@ jobs:
       - name: Self-test — fault injection must be caught (gate)
         run: make sim-fault
 
+      # cocotb is bundled in the OSS CAD Suite; install only if missing (defensive).
+      - name: Ensure cocotb available
+        run: python3 -c "import cocotb" 2>/dev/null || pip install -r tb/requirements.txt
+
+      - name: Simulate — cocotb Python testbench (gate)
+        run: make sim-cocotb
+
+      - name: Self-test — cocotb fault injection must be caught (gate)
+        run: make sim-cocotb-fault
+
       # ── Informational — k-induction proofs (may be slow / not fully closed)
       - name: Formal — sync k-induction proof depth 15 (informational)
         run: make formal-prove
