@@ -1,0 +1,20 @@
+[options]
+mode bmc
+depth 14
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo_width.sv
+# Second formal geometry: a 2:1 UP-sizer (WR=4, RD=8, NARROW=4, RATIO=2) — the
+# opposite pack/unpack datapath from the down-sizer gate (sync_fifo_width_bmc.sby
+# pins a 2:1 down-sizer). Together the two gates formally cover BOTH directions of
+# the width crossing; higher ratios (4:1/8:1) + big sub-word order remain in the
+# Verilator sweep (documented in proven_vs_tested.md). Depth 14 covers a full
+# fill+drain of the 8-beat ring.
+chparam -set WR_WIDTH 4 -set RD_WIDTH 8 -set DEPTH_NARROW 8 sync_fifo_width
+prep -top sync_fifo_width
+
+[files]
+rtl/sync_fifo_width.sv

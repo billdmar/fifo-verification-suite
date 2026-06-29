@@ -6,8 +6,9 @@ depth 30
 smtbmc yices
 
 [script]
-read -formal -DFORMAL sync_fifo_fwft.sv
-# DEPTH=8 harness for formal tractability (same convention as the sync harness).
+read -formal -DFORMAL -DFORMAL_DATA sync_fifo_fwft.sv
+# DEPTH=8 harness. -DFORMAL_DATA so the tracked-round-trip cover (which uses the
+# $anyconst slot tracker) is included alongside the pointer/flag covers.
 chparam -set DEPTH 8 sync_fifo_fwft
 prep -top sync_fifo_fwft
 

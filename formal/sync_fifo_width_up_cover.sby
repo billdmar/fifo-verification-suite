@@ -1,0 +1,15 @@
+[options]
+mode cover
+depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo_width.sv
+# Same 2:1 up-sizer instance as sync_fifo_width_up_bmc.sby.
+chparam -set WR_WIDTH 4 -set RD_WIDTH 8 -set DEPTH_NARROW 8 sync_fifo_width
+prep -top sync_fifo_width
+
+[files]
+rtl/sync_fifo_width.sv

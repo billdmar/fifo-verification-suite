@@ -42,10 +42,13 @@ FWFT_TOP        := rtl/sync_fifo_fwft.sv
 FWFT_TB_SRC     := tb/tb_sync_fifo_fwft.cpp
 FWFT_BMC_SCR    := formal/sync_fifo_fwft_bmc.sby
 FWFT_COVER_SCR  := formal/sync_fifo_fwft_cover.sby
+FWFT_PROVE_SCR  := formal/sync_fifo_fwft_prove.sby
 WIDTH_TOP       := rtl/sync_fifo_width.sv
 WIDTH_TB_SRC    := tb/tb_sync_fifo_width.cpp
 WIDTH_BMC_SCR   := formal/sync_fifo_width_bmc.sby
 WIDTH_COVER_SCR := formal/sync_fifo_width_cover.sby
+WIDTH_UP_BMC_SCR   := formal/sync_fifo_width_up_bmc.sby
+WIDTH_UP_COVER_SCR := formal/sync_fifo_width_up_cover.sby
 AXISCONV_TOP    := rtl/axis_width_conv.sv
 AXISCONV_BMC_SCR   := formal/axis_width_conv_bmc.sby
 AXISCONV_COVER_SCR := formal/axis_width_conv_cover.sby
@@ -66,8 +69,8 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
 .PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
-        formal-fwft-bmc formal-fwft-cover formal-fwft \
-        formal-width-bmc formal-width-cover formal-width \
+        formal-fwft-bmc formal-fwft-cover formal-fwft-prove formal-fwft \
+        formal-width-bmc formal-width-cover formal-width-up-bmc formal-width-up-cover formal-width \
         formal-axisconv-bmc formal-axisconv-cover formal-axisconv \
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
         sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
@@ -196,22 +199,37 @@ formal-fwft-cover:
 	$(ENV) sby -f $(FWFT_COVER_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-fwft  : Run FWFT BMC + cover (the FWFT formal gate)
-formal-fwft: formal-fwft-bmc formal-fwft-cover
+## formal-fwft-prove  : FWFT pointer/count/flag k-induction (unbounded, PROVEN)
+formal-fwft-prove:
+	$(ENV) sby -f $(FWFT_PROVE_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-width-bmc   : Asymmetric-width FIFO width-crossing integrity BMC (2:1 instance, depth 14)
+## formal-fwft  : Run FWFT BMC + cover + k-induction prove (the FWFT formal gate)
+formal-fwft: formal-fwft-bmc formal-fwft-cover formal-fwft-prove
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width-bmc   : Asymmetric-width FIFO width-crossing integrity BMC (2:1 down-sizer, depth 14)
 formal-width-bmc:
 	$(ENV) sby -f $(WIDTH_BMC_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-width-cover : Asymmetric-width FIFO cover witnesses (depth 30)
+## formal-width-cover : Asymmetric-width FIFO cover witnesses (2:1 down-sizer, depth 30)
 formal-width-cover:
 	$(ENV) sby -f $(WIDTH_COVER_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-width : Run asymmetric-width FIFO BMC + cover (the width formal gate)
-formal-width: formal-width-bmc formal-width-cover
+## formal-width-up-bmc   : Asymmetric-width FIFO UP-sizer BMC (2:1 up-sizer, depth 14)
+formal-width-up-bmc:
+	$(ENV) sby -f $(WIDTH_UP_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width-up-cover : Asymmetric-width FIFO UP-sizer cover witnesses (depth 30)
+formal-width-up-cover:
+	$(ENV) sby -f $(WIDTH_UP_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width : Run asymmetric-width FIFO BMC + cover, BOTH directions (the width formal gate)
+formal-width: formal-width-bmc formal-width-cover formal-width-up-bmc formal-width-up-cover
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## formal-axisconv-bmc   : AXI4-Stream width-converter protocol BMC (depth 14)
@@ -409,8 +427,11 @@ clean:
 	rm -rf formal/axis_fifo_cover/
 	rm -rf formal/sync_fifo_fwft_bmc/
 	rm -rf formal/sync_fifo_fwft_cover/
+	rm -rf formal/sync_fifo_fwft_prove/
 	rm -rf formal/sync_fifo_width_bmc/
 	rm -rf formal/sync_fifo_width_cover/
+	rm -rf formal/sync_fifo_width_up_bmc/
+	rm -rf formal/sync_fifo_width_up_cover/
 	rm -rf formal/axis_width_conv_bmc/
 	rm -rf formal/axis_width_conv_cover/
 	rm -rf logs_annotated/

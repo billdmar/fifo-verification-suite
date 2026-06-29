@@ -81,11 +81,20 @@ jobs:
       - name: Formal — FWFT cover reachability (gate)
         run: make formal-fwft-cover
 
-      - name: Formal — asymmetric-width FIFO width-crossing BMC depth 14 (gate)
+      - name: Formal — FWFT pointer/count/flag k-induction PROVEN (gate)
+        run: make formal-fwft-prove
+
+      - name: Formal — asymmetric-width FIFO width-crossing BMC, down-sizer depth 14 (gate)
         run: make formal-width-bmc
 
-      - name: Formal — asymmetric-width FIFO cover reachability (gate)
+      - name: Formal — asymmetric-width FIFO cover reachability, down-sizer (gate)
         run: make formal-width-cover
+
+      - name: Formal — asymmetric-width FIFO BMC, UP-sizer depth 14 (gate)
+        run: make formal-width-up-bmc
+
+      - name: Formal — asymmetric-width FIFO cover reachability, UP-sizer (gate)
+        run: make formal-width-up-cover
 
       - name: Formal — AXI4-Stream width-converter protocol BMC depth 14 (gate)
         run: make formal-axisconv-bmc

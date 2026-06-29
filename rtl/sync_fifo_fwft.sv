@@ -224,7 +224,16 @@ module sync_fifo_fwft #(
     //   unread word (raddr points at it AND it is pending), rd_data must show
     //   that word THIS cycle — ZERO latency. This is the FWFT contract: the head
     //   word is on the bus before any rd_en, not one cycle after.
+    //
+    //   Guarded under FORMAL_DATA: the $anyconst slot tracker is a shadow model
+    //   that the open-source Yosys frontend cannot bind to the DUT's mem[] array,
+    //   so its k-induction STEP cannot close (basecase + BMC do pass). The BMC
+    //   gate defines FORMAL_DATA and checks these exhaustively to depth 20; the
+    //   k-induction `prove` gate omits them so the pointer/count/flag invariants
+    //   (which ARE inductive) close cleanly and can be claimed PROVEN. Same
+    //   split + rationale as sync_fifo's data-integrity properties.
     // -------------------------------------------------------------------------
+`ifdef FORMAL_DATA
     (* anyconst *) logic [ADDR_WIDTH-1:0] f_track_slot;
     logic [DATA_WIDTH-1:0] f_tracked_data;
     logic                  f_slot_pending;     // tracked slot holds an unconsumed word
@@ -267,8 +276,16 @@ module sync_fifo_fwft #(
         end
     end
 
+    // Tracked round-trip: written, shown at head, then popped (data-tracker cover).
+    always @(posedge clk) begin
+        c_tracked_roundtrip: cover (
+            rst_n && f_slot_ever_written && do_read &&
+            (raddr == f_track_slot) && f_slot_pending);
+    end
+`endif // FORMAL_DATA
+
     // -------------------------------------------------------------------------
-    // GROUP 4 — Cover witnesses (reachability for real waveforms).
+    // GROUP 4 — Cover witnesses (reachability; pointer/flag-only, always on).
     // -------------------------------------------------------------------------
     always @(posedge clk) begin
         c_reach_full:  cover (rst_n && full);
@@ -284,13 +301,6 @@ module sync_fifo_fwft #(
     end
     always @(posedge clk) begin
         c_full_then_empty: cover (rst_n && f_was_full && empty);
-    end
-
-    // Tracked round-trip: written, shown at head, then popped.
-    always @(posedge clk) begin
-        c_tracked_roundtrip: cover (
-            rst_n && f_slot_ever_written && do_read &&
-            (raddr == f_track_slot) && f_slot_pending);
     end
 
 `endif // FORMAL
