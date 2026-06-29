@@ -1,0 +1,36 @@
+[options]
+size 100
+tags COVERED UNCOVERED
+
+[script]
+read -sv ../rtl/sync_fifo.sv
+chparam -set DEPTH 8 sync_fifo
+prep -top sync_fifo
+
+[files]
+../rtl/sync_fifo_properties.sv
+sync_fifo_mcy_tb.sv
+test_fm.sby
+
+[logic]
+# A mutant is COVERED (killed) iff the formal property check FAILs on it.
+fm = result("test_fm")
+if fm == "FAIL":
+    tag("COVERED")     # assertions caught the mutation — good
+elif fm == "PASS":
+    tag("UNCOVERED")   # assertions did NOT catch it (gap or equivalent mutant)
+else:
+    tag("UNCOVERED")
+
+[report]
+n_cov = tags("COVERED")
+n_unc = tags("UNCOVERED")
+if n_cov + n_unc > 0:
+    print("Mutation kill-rate: %d/%d = %.1f%%" % (n_cov, n_cov + n_unc,
+          100.0 * n_cov / (n_cov + n_unc)))
+if n_unc:
+    print("%d surviving mutant(s) — inspect (coverage gap vs equivalent mutant)." % n_unc)
+
+[test test_fm]
+expect PASS FAIL
+run bash $PRJDIR/test_fm.sh

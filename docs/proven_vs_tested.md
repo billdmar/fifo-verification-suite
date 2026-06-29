@@ -10,6 +10,7 @@ in CI). Nothing here is aspirational.
 These hold for **all reachable states**, not just a bounded window. Discharged
 by SymbiYosys `prove` mode and re-checked by BMC.
 
+**`sync_fifo`:**
 - Mutual exclusion: `!(full && empty)`
 - Empty clears after a write; full clears after a read
 - Write/read pointer monotonicity (stay or +1 per cycle)
@@ -21,6 +22,15 @@ by SymbiYosys `prove` mode and re-checked by BMC.
 - **Bounded progress / no-deadlock**: under sustained read (resp. write)
   pressure occupancy strictly decreases (resp. increases), and `!full || !empty`
   always holds — so the FIFO always makes progress and can never wedge
+
+**`sync_fifo_fwft`** (k-induction `formal/sync_fifo_fwft_prove.sby`): the
+pointer/count/flag subset — `!(full&&empty)`, count-in-range, `empty⇔count==0`,
+`full⇔count==DEPTH`, `valid⇔!empty`, almost-flags track count, pointer/count
+monotonicity, no over/underflow — closes k-induction (PROVEN), same extra-MSB
+scheme as `sync_fifo`. The `$anyconst` show-ahead data-integrity properties stay
+BMC-bounded (below) — they are guarded under `FORMAL_DATA` and omitted from the
+prove gate, since the shadow tracker cannot bind to the DUT `mem[]` on the
+open-source Yosys frontend (same documented limitation as `sync_fifo`).
 
 ## ✅ Formally CHECKED — BMC-bounded (sound within the depth)
 
@@ -34,26 +44,30 @@ are exhaustive over every reachable scenario within that window.
 | No duplicate read / no read-before-write | sync | 20 |
 | All CDC properties — Gray-one-bit, encode, monotonic, no over/underflow, occupancy, no-missed-full, cross-domain data integrity | async (multiclock) | 16 |
 | AXI4-Stream protocol — tvalid/tdata/tlast stable-until-accepted, no loss under backpressure, no spurious valid, end-to-end data/last integrity | axis | 20 |
-| Show-ahead data-at-head + ring invariants + no-dup/no-read-before-write | fwft | 20 |
+| Show-ahead data-at-head + no-dup/no-read-before-write (`$anyconst`; ring invariants are k-induction PROVEN above) | fwft | 20 |
 | Width-crossing data integrity (`$anyconst` narrow-beat tracker) + pointer/count/flag invariants, no over/underflow | sync_fifo_width | 14 |
 
 **On the asymmetric-width FIFO (`sync_fifo_width`).** The width-crossing data
-integrity is formally proven by BMC (depth 14) on a representative **2:1
-down-sizer** instance (`WR_WIDTH=8`, `RD_WIDTH=4`, `NARROW=4`, `DEPTH_NARROW=8`,
-little sub-word order). A companion cover (`c_track_roundtrip`) exhibits a
-concrete write→read round-trip of a solver-chosen tracked narrow beat, proving
-the `$anyconst` integrity assertion is **non-vacuous** — it witnesses that *at
-least one* tracked index is reachable and genuinely checked, not that every one of
-the 32 possible `f_track_idx` values fires (indices not reachable in the depth-14
-window pass inertly and cannot mask a counterexample). BMC discharges the
-assertion for *all* index values, so within the window every reachable narrow beat
-is proven delivered in FIFO order at the correct sub-word position.
-**Higher ratios (4:1, 8:1), the up-sizer direction (`WR_WIDTH<RD_WIDTH`), and big
-sub-word order are validated by the Verilator constrained-random testbench**
-against a narrow-granularity golden model (`make sim-width-fifo-sweep` covers
-2:1/4:1/8:1, little+big, both directions), with anti-vacuity proven by fault
-injection (`make sim-width-fifo-fault`). In short: the formal instance proves the
-pack/unpack data-flow on one geometry; simulation covers the geometric sweep.
+integrity is formally proven by BMC (depth 14) on **two** instances covering
+**both directions** of the width change: a **2:1 down-sizer**
+(`WR_WIDTH=8`,`RD_WIDTH=4`; `formal/sync_fifo_width_bmc.sby`) and a **2:1
+up-sizer** (`WR_WIDTH=4`,`RD_WIDTH=8`; `formal/sync_fifo_width_up_bmc.sby`), both
+`NARROW=4`,`DEPTH_NARROW=8`, little sub-word order. The two exercise the opposite
+pack/unpack datapaths (multi-beat write + single-beat read vs. the reverse). Each
+has a companion cover (`c_track_roundtrip`) exhibiting a concrete write→read
+round-trip of a solver-chosen tracked narrow beat, proving the `$anyconst`
+integrity assertion is **non-vacuous** — it witnesses that *at least one* tracked
+index is reachable and genuinely checked, not that every one of the 32 possible
+`f_track_idx` values fires (indices unreachable in the depth-14 window pass
+inertly and cannot mask a counterexample). BMC discharges the assertion for *all*
+index values, so within the window every reachable narrow beat is proven delivered
+in FIFO order at the correct sub-word position.
+**Higher ratios (4:1, 8:1) and big sub-word order are validated by the Verilator
+constrained-random testbench** against a narrow-granularity golden model
+(`make sim-width-fifo-sweep` covers 2:1/4:1/8:1, little+big, both directions),
+with anti-vacuity proven by fault injection (`make sim-width-fifo-fault`). In
+short: both width *directions* at 2:1 are formally proven; the larger ratios and
+big-endian order are covered by the geometric simulation sweep.
 
 **Why the `$anyconst` data-integrity properties are BMC-bounded, not proven:**
 the slot tracker is a shadow model that cannot be tied to the DUT's internal
@@ -89,3 +103,12 @@ Verilator C++ testbench with a `std::queue` golden-model scoreboard:
   the `SYNC_STAGES` flop chain, not provable by functional formal.
 - **Vendor-FPGA timing**: the committed FPGA numbers are open-source-flow
   (Yosys + nextpnr); Lattice Diamond/Radiant or Xilinx Vivado will differ.
+- **`axis_pkt_fifo` with an oversized packet**: store-and-forward *inherently*
+  needs the whole packet to fit before its TLAST commits, so a packet of
+  `DEPTH`-or-more beats wedges the buffer (it can never commit). This is a
+  **producer contract** (packets ≤ `DEPTH-1` beats), documented in the module
+  header and made explicit as the formal assumption `m_pkt_fits` ((`wptr -
+  commit_ptr`) < DEPTH); the cover `c_near_full` shows the bound is exercised to
+  the limit. The suite-wide no-deadlock guarantee is about the single-clock
+  plain/FWFT FIFOs' `!full || !empty` progress and does **not** extend to a
+  store-and-forward buffer fed a non-conformant (oversized) packet.

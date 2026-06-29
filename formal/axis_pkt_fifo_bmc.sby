@@ -1,0 +1,18 @@
+[options]
+mode bmc
+depth 14
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL axis_pkt_fifo.sv
+# DEPTH=8 harness (same convention as the rest of the suite). Depth 14 covers a
+# multi-packet fill + store-and-forward commit + drain window; the $anyconst
+# tracker plus the commit/packet counters make deeper windows expensive for no
+# added store-and-forward coverage (same depth choice as the round-2 width gates).
+chparam -set DEPTH 8 axis_pkt_fifo
+prep -top axis_pkt_fifo
+
+[files]
+rtl/axis_pkt_fifo.sv

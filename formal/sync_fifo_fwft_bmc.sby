@@ -6,8 +6,10 @@ depth 20
 smtbmc yices
 
 [script]
-read -formal -DFORMAL sync_fifo_fwft.sv
+read -formal -DFORMAL -DFORMAL_DATA sync_fifo_fwft.sv
 # DEPTH=8 harness for formal tractability (same convention as the sync harness).
+# -DFORMAL_DATA enables the $anyconst show-ahead data-integrity properties (BMC
+# checks them exhaustively; the prove gate omits them — see sync_fifo_fwft_prove.sby).
 chparam -set DEPTH 8 sync_fifo_fwft
 prep -top sync_fifo_fwft
 

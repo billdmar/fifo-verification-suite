@@ -1,0 +1,19 @@
+[options]
+mode prove
+depth 15
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo_fwft.sv
+# DEPTH=8 harness. The $anyconst show-ahead data-integrity properties are guarded
+# under -DFORMAL_DATA (defined only for the BMC gate); this prove run omits them
+# so the inductive pointer/count/flag invariants close k-induction cleanly (the
+# data-tracker step cannot close on the open-source Yosys frontend — same mem[]
+# binding limitation documented for sync_fifo).
+chparam -set DEPTH 8 sync_fifo_fwft
+prep -top sync_fifo_fwft
+
+[files]
+rtl/sync_fifo_fwft.sv

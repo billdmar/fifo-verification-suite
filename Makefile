@@ -42,13 +42,20 @@ FWFT_TOP        := rtl/sync_fifo_fwft.sv
 FWFT_TB_SRC     := tb/tb_sync_fifo_fwft.cpp
 FWFT_BMC_SCR    := formal/sync_fifo_fwft_bmc.sby
 FWFT_COVER_SCR  := formal/sync_fifo_fwft_cover.sby
+FWFT_PROVE_SCR  := formal/sync_fifo_fwft_prove.sby
 WIDTH_TOP       := rtl/sync_fifo_width.sv
 WIDTH_TB_SRC    := tb/tb_sync_fifo_width.cpp
 WIDTH_BMC_SCR   := formal/sync_fifo_width_bmc.sby
 WIDTH_COVER_SCR := formal/sync_fifo_width_cover.sby
+WIDTH_UP_BMC_SCR   := formal/sync_fifo_width_up_bmc.sby
+WIDTH_UP_COVER_SCR := formal/sync_fifo_width_up_cover.sby
 AXISCONV_TOP    := rtl/axis_width_conv.sv
 AXISCONV_BMC_SCR   := formal/axis_width_conv_bmc.sby
 AXISCONV_COVER_SCR := formal/axis_width_conv_cover.sby
+PKTFIFO_TOP     := rtl/axis_pkt_fifo.sv
+PKTFIFO_TB_SRC  := tb/tb_axis_pkt_fifo.cpp
+PKTFIFO_BMC_SCR    := formal/axis_pkt_fifo_bmc.sby
+PKTFIFO_COVER_SCR  := formal/axis_pkt_fifo_cover.sby
 
 # Asymmetric-width FIFO sim config (override: make sim-width-fifo WR_WIDTH=8 RD_WIDTH=32)
 WR_WIDTH     ?= 32
@@ -59,19 +66,21 @@ SUB_WORD_BIG ?= 0
 # Verible (style/lint gate). On CI it is on PATH; locally pass the full path:
 #   make lint-verible VERIBLE=$$HOME/verible/bin/verible-verilog-lint
 VERIBLE ?= verible-verilog-lint
-VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv rtl/axis_width_conv.sv rtl/demo_top.sv
+VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv rtl/axis_width_conv.sv rtl/axis_pkt_fifo.sv rtl/demo_top.sv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
+.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
-        formal-fwft-bmc formal-fwft-cover formal-fwft \
-        formal-width-bmc formal-width-cover formal-width \
+        formal-fwft-bmc formal-fwft-cover formal-fwft-prove formal-fwft \
+        formal-width-bmc formal-width-cover formal-width-up-bmc formal-width-up-cover formal-width \
         formal-axisconv-bmc formal-axisconv-cover formal-axisconv \
+        formal-pktfifo-bmc formal-pktfifo-cover formal-pktfifo \
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
         sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
-        sim-coverage fpga-report bitstream waveforms all clean
+        sim-pktfifo sim-pktfifo-fault \
+        sim-coverage fpga-report bitstream mutate perf-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -113,6 +122,11 @@ lint-width:
 lint-axisconv:
 	$(ENV) verilator --lint-only -Wall --top-module axis_width_conv $(AXISCONV_TOP) $(WIDTH_TOP)
 	$(ENV) verilator --lint-only -Wall -GS_WIDTH=8 -GM_WIDTH=32 --top-module axis_width_conv $(AXISCONV_TOP) $(WIDTH_TOP)
+
+##─────────────────────────────────────────────────────────────────────────────
+## lint-pktfifo : Lint the store-and-forward packet FIFO with Verilator -Wall
+lint-pktfifo:
+	$(ENV) verilator --lint-only -Wall --top-module axis_pkt_fifo $(PKTFIFO_TOP)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## lint-demo    : Lint the synthesizable demo top (loopback through the converters)
@@ -196,22 +210,37 @@ formal-fwft-cover:
 	$(ENV) sby -f $(FWFT_COVER_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-fwft  : Run FWFT BMC + cover (the FWFT formal gate)
-formal-fwft: formal-fwft-bmc formal-fwft-cover
+## formal-fwft-prove  : FWFT pointer/count/flag k-induction (unbounded, PROVEN)
+formal-fwft-prove:
+	$(ENV) sby -f $(FWFT_PROVE_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-width-bmc   : Asymmetric-width FIFO width-crossing integrity BMC (2:1 instance, depth 14)
+## formal-fwft  : Run FWFT BMC + cover + k-induction prove (the FWFT formal gate)
+formal-fwft: formal-fwft-bmc formal-fwft-cover formal-fwft-prove
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width-bmc   : Asymmetric-width FIFO width-crossing integrity BMC (2:1 down-sizer, depth 14)
 formal-width-bmc:
 	$(ENV) sby -f $(WIDTH_BMC_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-width-cover : Asymmetric-width FIFO cover witnesses (depth 30)
+## formal-width-cover : Asymmetric-width FIFO cover witnesses (2:1 down-sizer, depth 30)
 formal-width-cover:
 	$(ENV) sby -f $(WIDTH_COVER_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
-## formal-width : Run asymmetric-width FIFO BMC + cover (the width formal gate)
-formal-width: formal-width-bmc formal-width-cover
+## formal-width-up-bmc   : Asymmetric-width FIFO UP-sizer BMC (2:1 up-sizer, depth 14)
+formal-width-up-bmc:
+	$(ENV) sby -f $(WIDTH_UP_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width-up-cover : Asymmetric-width FIFO UP-sizer cover witnesses (depth 30)
+formal-width-up-cover:
+	$(ENV) sby -f $(WIDTH_UP_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-width : Run asymmetric-width FIFO BMC + cover, BOTH directions (the width formal gate)
+formal-width: formal-width-bmc formal-width-cover formal-width-up-bmc formal-width-up-cover
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## formal-axisconv-bmc   : AXI4-Stream width-converter protocol BMC (depth 14)
@@ -228,8 +257,22 @@ formal-axisconv-cover:
 formal-axisconv: formal-axisconv-bmc formal-axisconv-cover
 
 ##─────────────────────────────────────────────────────────────────────────────
+## formal-pktfifo-bmc   : Store-and-forward packet FIFO BMC (depth 14)
+formal-pktfifo-bmc:
+	$(ENV) sby -f $(PKTFIFO_BMC_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-pktfifo-cover : Store-and-forward packet FIFO cover witnesses (depth 30)
+formal-pktfifo-cover:
+	$(ENV) sby -f $(PKTFIFO_COVER_SCR)
+
+##─────────────────────────────────────────────────────────────────────────────
+## formal-pktfifo : Run packet-FIFO BMC + cover (the packet-FIFO formal gate)
+formal-pktfifo: formal-pktfifo-bmc formal-pktfifo-cover
+
+##─────────────────────────────────────────────────────────────────────────────
 ## formal       : Run all sync + async + AXI + FWFT + width + converter formal gates
-formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv
+formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
@@ -323,6 +366,35 @@ sim-fwft-fault:
 	fi
 
 ##─────────────────────────────────────────────────────────────────────────────
+## sim-pktfifo  : Build + run the store-and-forward packet FIFO TB
+sim-pktfifo:
+	rm -rf obj_dir_pktfifo
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
+	  --top-module axis_pkt_fifo \
+	  $(PKTFIFO_TOP) $(PKTFIFO_TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH)" \
+	  -Mdir obj_dir_pktfifo -o sim_pktfifo
+	./obj_dir_pktfifo/sim_pktfifo
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-pktfifo-fault : packet-FIFO anti-vacuity — SUCCEEDS only if the checker catches an injected fault
+sim-pktfifo-fault:
+	rm -rf obj_dir_pktfifo
+	$(ENV) verilator --cc --exe --build -Wall --trace \
+	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
+	  --top-module axis_pkt_fifo \
+	  $(PKTFIFO_TOP) $(PKTFIFO_TB_SRC) \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH) -DINJECT_FAULT" \
+	  -Mdir obj_dir_pktfifo -o sim_pktfifo
+	@if ./obj_dir_pktfifo/sim_pktfifo; then \
+	  echo "ERROR: fault was NOT caught — packet-FIFO scoreboard is vacuous!"; \
+	  exit 1; \
+	else \
+	  echo "PASS: fault correctly caught by packet-FIFO scoreboard."; \
+	fi
+
+##─────────────────────────────────────────────────────────────────────────────
 ## sim-width-fifo : Build + run the asymmetric-width FIFO TB (WR_WIDTH/RD_WIDTH/DEPTH_NARROW/SUB_WORD_BIG)
 sim-width-fifo:
 	rm -rf obj_dir_width
@@ -385,13 +457,26 @@ bitstream:
 	./scripts/build_bitstream.sh
 
 ##─────────────────────────────────────────────────────────────────────────────
+## mutate       : Mutation testing — kill sync_fifo mutants with the formal suite (mcy)
+mutate:
+	$(ENV) cd mcy && rm -rf database tasks && mcy init && mcy run -j$(MCY_JOBS) && mcy status
+
+## MCY_JOBS override parallelism for `make mutate`
+MCY_JOBS ?= 4
+
+##─────────────────────────────────────────────────────────────────────────────
+## perf-report  : Cycle-accurate throughput/latency characterization for sync_fifo
+perf-report:
+	./scripts/perf_report.sh
+
+##─────────────────────────────────────────────────────────────────────────────
 ## waveforms    : Regenerate docs/waveforms/*.svg from the sim VCD (needs `make sim`)
 waveforms:
 	python3 scripts/gen_waveforms.py
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT/width/converter), sim
-all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-demo synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv sim sim-fwft sim-width-fifo
+all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-demo synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo sim sim-fwft sim-width-fifo sim-pktfifo
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
@@ -409,10 +494,15 @@ clean:
 	rm -rf formal/axis_fifo_cover/
 	rm -rf formal/sync_fifo_fwft_bmc/
 	rm -rf formal/sync_fifo_fwft_cover/
+	rm -rf formal/sync_fifo_fwft_prove/
 	rm -rf formal/sync_fifo_width_bmc/
 	rm -rf formal/sync_fifo_width_cover/
+	rm -rf formal/sync_fifo_width_up_bmc/
+	rm -rf formal/sync_fifo_width_up_cover/
 	rm -rf formal/axis_width_conv_bmc/
 	rm -rf formal/axis_width_conv_cover/
+	rm -rf formal/axis_pkt_fifo_bmc/
+	rm -rf formal/axis_pkt_fifo_cover/
 	rm -rf logs_annotated/
 	rm -rf tb/sim_build/ tb/__pycache__/ tb/lib tb/results.xml
 	rm -f  *.vcd

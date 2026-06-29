@@ -17,20 +17,21 @@
 
 ## ✨ Highlights
 
-- **Six verified designs** — single-clock `sync_fifo` (extra-MSB dual-pointer, registered read), `sync_fifo_fwft` (same core with a **first-word-fall-through / show-ahead** read), dual-clock `async_fifo` (Gray-code pointers + multi-flop CDC synchronizers, Cummings-style), an `axis_fifo` AXI4-Stream wrapper, an **`sync_fifo_width` asymmetric-width FIFO** (write width ≠ read width, up/down-sizer), and an **`axis_width_conv` AXI4-Stream width converter** built on it
-- **Width-crossing formally proven** — the asymmetric-width FIFO's pack/unpack data integrity is BMC-proven with an `$anyconst` narrow-beat tracker (every beat delivered in FIFO order at the correct sub-word position), non-vacuity shown by a cover round-trip; up/down-size, ratios 2:1–8:1, and both sub-word orders are swept in simulation
-- **Formally verified** — all sync SVA assertions pass BMC at depth 20 (the required gate); the async CDC properties pass multi-clock BMC at depth 16; FWFT, width-FIFO, and width-converter properties pass BMC; bounded-liveness/progress proofs gate that the FIFO always drains/fills and never deadlocks
-- **Pointer/count/flag invariants are k-induction PROVEN** (unbounded), strengthened with auxiliary inductive invariants — not merely BMC-bounded
-- **Cover witnesses** — fill-to-full, drain-to-empty, pointer wrap, simultaneous R+W, full→empty→full round-trip, FWFT show-ahead, and width-crossing round-trip all generate real waveform traces
+- **Seven verified designs** — single-clock `sync_fifo` (extra-MSB dual-pointer, registered read), `sync_fifo_fwft` (same core with a **first-word-fall-through / show-ahead** read), dual-clock `async_fifo` (Gray-code pointers + multi-flop CDC synchronizers, Cummings-style), an `axis_fifo` AXI4-Stream wrapper, an `sync_fifo_width` **asymmetric-width FIFO** (write width ≠ read width, up/down-sizer), an `axis_width_conv` **AXI4-Stream width converter** built on it, and an `axis_pkt_fifo` **store-and-forward packet FIFO** (TLAST-aware, packet-atomicity proven)
+- **Mutation-tested — proof the assertions catch bugs** — `make mutate` runs `mcy` (Mutation Cover with Yosys) against `sync_fifo`: **92% mutation kill-rate**, and all 8 survivors are proven *equivalent mutants* (0 real coverage gaps) — see [docs/mutation_testing.md](docs/mutation_testing.md)
+- **Width-crossing formally proven, both directions** — the asymmetric-width FIFO's pack/unpack data integrity is BMC-proven with an `$anyconst` narrow-beat tracker on **both a 2:1 down-sizer and a 2:1 up-sizer**; higher ratios (4:1/8:1) and big sub-word order are swept in simulation
+- **Store-and-forward packet atomicity** — `axis_pkt_fifo` formally proves a packet's beats are never released until its TLAST is committed (the network-switch store-and-forward invariant), plus packet-count conservation and end-to-end TLAST integrity. (Store-and-forward inherently requires the whole packet to fit: packets must be ≤ DEPTH-1 beats — a documented producer contract, asserted formally as `m_pkt_fits`.)
+- **Formally verified** — sync SVA passes BMC depth 20; async CDC passes multi-clock BMC depth 16; FWFT, width (both directions), converter, and packet-FIFO properties pass BMC; **for the single-clock plain/FWFT FIFOs**, bounded-liveness/progress proofs gate that they always drain/fill and never deadlock (the store-and-forward `axis_pkt_fifo` is bounded by the ≤ DEPTH-1 packet contract above, not this no-deadlock guarantee)
+- **Pointer/count/flag invariants k-induction PROVEN (unbounded)** for **both `sync_fifo` and `sync_fifo_fwft`** — strengthened with auxiliary inductive invariants, not merely BMC-bounded
+- **Cover witnesses** — fill-to-full, drain-to-empty, pointer wrap, simultaneous R+W, full→empty→full, FWFT show-ahead, width-crossing round-trip, and packet store-and-forward hold-back all generate real traces
 - **Two testbenches, two languages** — a Verilator **C++** scoreboard (13 directed scenarios + a 120,000-cycle biased constrained-random run) *and* an industry-standard **cocotb (Python)** testbench, each with an independent `std::queue`/`deque` golden model
-- **Coverage closure** — 10/10 functional-coverage bins hit (enforced as a hard gate) plus 100% Verilator line/toggle/branch/expr coverage (the annotated report is a CI artifact); parameter sweeps over **DEPTH (4–256)**, **DATA_WIDTH (1/8/64)**, and **width ratios (2:1–8:1, both directions)**
-- **Fault-injection self-test** — `make sim-fault` / `sim-cocotb-fault` / `sim-fwft-fault` / `sim-width-fifo-fault` prove each checker is not vacuous (the scoreboard must catch an intentionally injected error)
-- **AXI4-Stream wrappers** — drop-in `axis_fifo` (tvalid/tready/tdata/tlast) *and* `axis_width_conv` (data-width converter) with formal proof of protocol compliance: tvalid/tdata stable-until-accepted, no data loss under backpressure
-- **Real FPGA — numbers *and* bitstreams** — actual Yosys + nextpnr place-and-route on **ECP5 (LFE5U-85F)** and **iCE40 (UP5K)** across the depth sweep ([docs/fpga_results.md](docs/fpga_results.md)), plus a real **bitstream build** (`make bitstream`) that takes a self-checking demo top all the way to a flashable ECP5 `.bit` + iCE40 `.bin` (open-source flow, seed-dependent, build-only)
+- **Coverage closure** — 10/10 functional-coverage bins (hard gate) + 100% Verilator line/toggle/branch/expr coverage (annotated report is a CI artifact); sweeps over **DEPTH (4–256)**, **DATA_WIDTH (1/8/64)**, and **width ratios (2:1–8:1, both directions)**
+- **Fault-injection self-tests** — `make sim-fault` / `sim-cocotb-fault` / `sim-fwft-fault` / `sim-width-fifo-fault` / `sim-pktfifo-fault` prove each checker is not vacuous (must catch an injected error)
+- **Performance characterized** — `make perf-report` reports cycle-accurate sustained throughput (1.0 beat/cycle at 100/100; `min(rates)` under asymmetric load) + 1-cycle read latency ([docs/perf_results.md](docs/perf_results.md))
+- **Real FPGA — numbers *and* bitstreams** — Yosys + nextpnr P&R on **ECP5 (LFE5U-85F)** + **iCE40 (UP5K)** across the depth sweep ([docs/fpga_results.md](docs/fpga_results.md)), plus a real **bitstream build** (`make bitstream`) → flashable ECP5 `.bit` + iCE40 `.bin` (open-source flow, build-only)
 - **Two linters as hard gates** — Verilator `-Wall` *and* Verible style lint, both clean
-- **Parameterizable DEPTH 4–1024** — depth sweep (4, 8, 16, 64, 256) all green in CI
-- **100% open-source toolchain** — OSS CAD Suite (Yosys 0.64, SymbiYosys 0.66, Verilator 5.049, cocotb, ecppack/icepack) + Verible + nextpnr
-- **Green GitHub Actions CI** — lint (Verilator ×6 + Verible), synth, formal (sync BMC + liveness + CDC + AXI + FWFT + width + converter + cover), C++ & Python simulation, depth + width sweeps, coverage, fault self-tests, and informational FPGA P&R + bitstream-build jobs on every push
+- **100% open-source toolchain** — OSS CAD Suite (Yosys 0.64, SymbiYosys 0.66, Verilator 5.049, cocotb, ecppack/icepack, mcy) + Verible + nextpnr
+- **Green GitHub Actions CI** — lint (Verilator ×7 + Verible), synth, formal (sync BMC + liveness + CDC + AXI + FWFT + k-induction + width ×2 dirs + converter + packet + cover), C++ & Python simulation, depth + width sweeps, coverage, fault self-tests, and informational FPGA-P&R + bitstream + mutation jobs on every push
 
 ---
 
@@ -241,6 +242,12 @@ make sim-width-fifo-sweep  # width FIFO across both directions, ratios, endianne
 make sim-width-fifo-fault  # width FIFO anti-vacuity self-test — CI gate
 make sim-coverage       # Verilator line/toggle/branch/expr coverage report (CI artifact)
 make sim-fault          # Fault-injection self-test (exits 0 only if checker fires)
+make formal-fwft-prove  # FWFT pointer/count/flag k-induction PROVEN — CI gate
+make formal-width       # asymmetric-width BMC+cover, BOTH directions — CI gate
+make formal-pktfifo     # store-and-forward packet FIFO BMC+cover — CI gate
+make sim-pktfifo        # packet FIFO C++ scoreboard — CI gate
+make mutate             # mutation testing (mcy kill-rate)
+make perf-report        # cycle-accurate throughput/latency table
 make fpga-report        # Real Yosys+nextpnr P&R sweep (ECP5 + iCE40)
 make bitstream          # Build real ECP5 .bit + iCE40 .bin for demo_top
 make waveforms          # Regenerate docs/waveforms/*.svg from the sim VCD
@@ -532,8 +539,12 @@ Full detail: **[docs/proven_vs_tested.md](docs/proven_vs_tested.md)** ·
 consolidated **[verification matrix](docs/verification_matrix.md)** ·
 **[requirement→property→witness traceability](docs/traceability.md)** ·
 **[assertion catalogue + density](docs/assertions.md)** ·
+**[how the formal proofs work](docs/formal_proof_methodology.md)** ·
+**[mutation testing](docs/mutation_testing.md)** ·
+**[performance](docs/perf_results.md)** ·
 **[datasheet](docs/datasheet.md)** ·
-**[CDC architecture](docs/cdc_architecture.md)** (with diagram).
+**[CDC architecture](docs/cdc_architecture.md)** (with diagram) ·
+**[CONTRIBUTING](CONTRIBUTING.md)**.
 
 ---
 
@@ -552,6 +563,9 @@ fifo-verification-suite/
 │   ├── assertions.md          # Per-property assertion catalogue + density metric
 │   ├── datasheet.md           # Compact signal/parameter/performance datasheet
 │   ├── traceability.md        # Requirement → property → witness matrix (all designs)
+│   ├── formal_proof_methodology.md # How the proofs work (extra-MSB, k-ind, $anyconst, CDC)
+│   ├── mutation_testing.md    # mcy kill-rate + survivor analysis
+│   ├── perf_results.md        # Cycle-accurate throughput / latency table
 │   └── waveforms/
 │       ├── .gitkeep
 │       └── wave_*.svg          # Timing diagrams generated from the sim VCD
@@ -572,7 +586,16 @@ fifo-verification-suite/
 │   ├── sync_fifo_width_bmc.sby  # asymmetric-width width-crossing BMC (depth 14, CI gate)
 │   ├── sync_fifo_width_cover.sby # asymmetric-width cover witnesses (depth 30, CI gate)
 │   ├── axis_width_conv_bmc.sby  # width-converter protocol BMC (depth 14, CI gate)
-│   └── axis_width_conv_cover.sby # width-converter cover witnesses (depth 30, CI gate)
+│   ├── axis_width_conv_cover.sby # width-converter cover witnesses (depth 30, CI gate)
+│   ├── sync_fifo_fwft_prove.sby # FWFT pointer/count/flag k-induction PROVEN (CI gate)
+│   ├── sync_fifo_width_up_bmc.sby   # asymmetric-width UP-sizer BMC (depth 14, CI gate)
+│   ├── sync_fifo_width_up_cover.sby # asymmetric-width UP-sizer covers (CI gate)
+│   ├── axis_pkt_fifo_bmc.sby   # store-and-forward packet FIFO BMC (depth 14, CI gate)
+│   └── axis_pkt_fifo_cover.sby # store-and-forward packet FIFO covers (CI gate)
+├── mcy/
+│   ├── config.mcy             # mutation-testing config (mutate sync_fifo, kill via formal)
+│   ├── test_fm.sh / test_fm.sby # per-mutant formal kill test
+│   └── sync_fifo_mcy_tb.sv    # bare-instantiation harness for the pre-elaborated mutant
 ├── rtl/
 │   ├── sync_fifo.sv            # DUT — parameterizable synchronous FIFO (registered read)
 │   ├── sync_fifo_properties.sv # sync SVA properties (explicit-instantiation module)
@@ -581,20 +604,25 @@ fifo-verification-suite/
 │   ├── async_fifo.sv           # DUT — dual-clock CDC FIFO (Gray + synchronizers, inlined SVA)
 │   ├── axis_fifo.sv            # AXI4-Stream wrapper around sync_fifo (inlined SVA)
 │   ├── axis_width_conv.sv      # AXI4-Stream width converter on sync_fifo_width (inlined SVA)
+│   ├── axis_pkt_fifo.sv        # DUT — store-and-forward packet FIFO (TLAST-aware, inlined SVA)
 │   └── demo_top.sv             # Synthesizable self-checking loopback (bitstream target)
 ├── scripts/
 │   ├── fpga_report.sh         # Yosys + nextpnr P&R sweep (ECP5 + iCE40)
 │   ├── build_bitstream.sh     # demo_top -> real ECP5 .bit + iCE40 .bin (yosys/nextpnr/pack)
+│   ├── perf_report.sh         # cycle-accurate throughput/latency sweep
 │   └── gen_waveforms.py       # VCD -> SVG timing diagrams (stdlib only)
 ├── tb/
 │   ├── tb_sync_fifo.cpp        # Verilator C++ TB + std::queue scoreboard (13 tests + coverage)
 │   ├── tb_sync_fifo_fwft.cpp   # Verilator C++ TB for the FWFT (show-ahead) FIFO
 │   ├── tb_sync_fifo_width.cpp  # Verilator C++ TB for the asymmetric-width FIFO (golden pack/unpack)
+│   ├── tb_axis_pkt_fifo.cpp    # Verilator C++ TB for the store-and-forward packet FIFO
+│   ├── perf_sync_fifo.cpp      # throughput/latency characterization harness
 │   ├── tb_sync_fifo_cocotb.py  # cocotb (Python) TB — deque golden model, self-contained runner
 │   └── requirements.txt        # cocotb pin (only needed without OSS CAD Suite)
 ├── .rules.verible_lint         # Verible style-lint config
+├── CONTRIBUTING.md             # How to build/test + add a verified design
 ├── LICENSE                     # MIT
-├── Makefile                    # Build, lint, formal, sim, fpga targets
+├── Makefile                    # Build, lint, formal, sim, fpga, mutate, perf targets
 └── README.md                   # This file
 ```
 
