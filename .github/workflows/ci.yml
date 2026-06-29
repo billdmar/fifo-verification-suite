@@ -176,3 +176,32 @@ jobs:
 
       - name: FPGA report (Yosys + nextpnr, ECP5 + iCE40)
         run: make fpga-report
+
+  # ── Informational — real BITSTREAM build for demo_top (RTL -> chip). Non-gating:
+  #    proves the full synth -> P&R -> pack flow emits flashable .bit/.bin (no board
+  #    is programmed). Functional correctness is the formal + Verilator job. ───────
+  bitstream:
+    name: Bitstream build demo_top (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OSS CAD Suite
+        run: |
+          curl -L -o oss-cad-suite.tgz \
+            https://github.com/YosysHQ/oss-cad-suite-build/releases/download/2026-06-04/oss-cad-suite-linux-x64-20260604.tgz
+          tar -xzf oss-cad-suite.tgz
+          echo "$PWD/oss-cad-suite/bin" >> $GITHUB_PATH
+
+      - name: Build ECP5 .bit + iCE40 .bin (Yosys -> nextpnr -> ecppack/icepack)
+        run: make bitstream
+
+      - name: Upload bitstreams
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-top-bitstreams
+          path: build/bitstream/demo_top_*.bi*
+          if-no-files-found: warn

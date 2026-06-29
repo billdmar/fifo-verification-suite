@@ -59,11 +59,11 @@ SUB_WORD_BIG ?= 0
 # Verible (style/lint gate). On CI it is on PATH; locally pass the full path:
 #   make lint-verible VERIBLE=$$HOME/verible/bin/verible-verilog-lint
 VERIBLE ?= verible-verilog-lint
-VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv rtl/axis_width_conv.sv
+VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rtl/axis_fifo.sv rtl/sync_fifo_fwft.sv rtl/sync_fifo_width.sv rtl/axis_width_conv.sv rtl/demo_top.sv
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
+.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
         formal-fwft-bmc formal-fwft-cover formal-fwft \
@@ -71,7 +71,7 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
         formal-axisconv-bmc formal-axisconv-cover formal-axisconv \
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
         sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
-        sim-coverage fpga-report waveforms all clean
+        sim-coverage fpga-report bitstream waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -113,6 +113,11 @@ lint-width:
 lint-axisconv:
 	$(ENV) verilator --lint-only -Wall --top-module axis_width_conv $(AXISCONV_TOP) $(WIDTH_TOP)
 	$(ENV) verilator --lint-only -Wall -GS_WIDTH=8 -GM_WIDTH=32 --top-module axis_width_conv $(AXISCONV_TOP) $(WIDTH_TOP)
+
+##─────────────────────────────────────────────────────────────────────────────
+## lint-demo    : Lint the synthesizable demo top (loopback through the converters)
+lint-demo:
+	$(ENV) verilator --lint-only -Wall --top-module demo_top rtl/demo_top.sv $(AXISCONV_TOP) $(WIDTH_TOP)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## lint-verible : Style/lint gate via Verible (config in .rules.verible_lint)
@@ -375,13 +380,18 @@ fpga-report:
 	./scripts/fpga_report.sh
 
 ##─────────────────────────────────────────────────────────────────────────────
+## bitstream    : Build real ECP5 (.bit) + iCE40 (.bin) bitstreams for demo_top
+bitstream:
+	./scripts/build_bitstream.sh
+
+##─────────────────────────────────────────────────────────────────────────────
 ## waveforms    : Regenerate docs/waveforms/*.svg from the sim VCD (needs `make sim`)
 waveforms:
 	python3 scripts/gen_waveforms.py
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT/width/converter), sim
-all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv sim sim-fwft sim-width-fifo
+all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-demo synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv sim sim-fwft sim-width-fifo
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
