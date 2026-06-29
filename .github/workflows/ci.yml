@@ -48,6 +48,9 @@ jobs:
       - name: Lint — AXI4-Stream width converter, both directions (Verilator)
         run: make lint-axisconv
 
+      - name: Lint — store-and-forward packet FIFO (Verilator)
+        run: make lint-pktfifo
+
       - name: Lint — Verible style gate (all RTL)
         run: make lint-verible
 
@@ -102,6 +105,12 @@ jobs:
       - name: Formal — AXI4-Stream width-converter cover reachability (gate)
         run: make formal-axisconv-cover
 
+      - name: Formal — store-and-forward packet FIFO BMC depth 14 (gate)
+        run: make formal-pktfifo-bmc
+
+      - name: Formal — store-and-forward packet FIFO cover reachability (gate)
+        run: make formal-pktfifo-cover
+
       - name: Simulate — Verilator TB depth 8 + functional coverage (gate)
         run: make sim
 
@@ -138,6 +147,12 @@ jobs:
 
       - name: Self-test — width-FIFO fault injection must be caught (gate)
         run: make sim-width-fifo-fault
+
+      - name: Simulate — store-and-forward packet FIFO TB (gate)
+        run: make sim-pktfifo
+
+      - name: Self-test — packet-FIFO fault injection must be caught (gate)
+        run: make sim-pktfifo-fault
 
       # ── Informational — k-induction proofs (may be slow / not fully closed)
       - name: Formal — sync k-induction proof depth 15 (informational)

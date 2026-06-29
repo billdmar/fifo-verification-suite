@@ -1,0 +1,14 @@
+[options]
+mode cover
+depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL axis_pkt_fifo.sv
+chparam -set DEPTH 8 axis_pkt_fifo
+prep -top axis_pkt_fifo
+
+[files]
+rtl/axis_pkt_fifo.sv
