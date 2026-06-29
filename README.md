@@ -153,7 +153,11 @@ vacuous.
 
 **Note:** `rd_data` is registered (clocked output). Reading requires one cycle
 of latency — assert `rd_en` on cycle N and sample `rd_data` on cycle N+1.
-Reset is **synchronous**: `rst_n` is sampled on the rising clock edge.
+Reset is **synchronous**: `rst_n` is sampled on the rising clock edge — so the
+instantiating system must hold `rst_n` low across at least one rising edge; an
+async reset pulse that falls entirely between edges may be missed. (The
+dual-clock `async_fifo` deliberately uses *async-assert* resets — `negedge
+*_rst_n` in its sensitivity lists — the correct choice for CDC.)
 
 ---
 

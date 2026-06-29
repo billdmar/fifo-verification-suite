@@ -72,6 +72,9 @@ jobs:
       - name: Simulate — depth sweep 4/8/16/64/256 (gate)
         run: make sim-sweep
 
+      - name: Simulate — data-width sweep 1/8/64 (gate)
+        run: make sim-width-sweep
+
       - name: Coverage — Verilator line/toggle/branch/expr (gate)
         run: make sim-coverage
 

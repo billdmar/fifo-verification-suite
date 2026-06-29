@@ -15,8 +15,14 @@ ENV = if [ -f $(OSS_ENV) ]; then source $(OSS_ENV); fi;
 # Simulation depth for a single `make sim` run (override: make sim DEPTH=32)
 DEPTH ?= 8
 
+# Simulation data width for a single `make sim` run (override: make sim DATA_WIDTH=32)
+DATA_WIDTH ?= 8
+
 # Depth sweep list for `make sim-sweep`
 DEPTHS := 4 8 16 64 256
+
+# Data-width sweep list for `make sim-width-sweep` (parameter range bounds)
+DATA_WIDTHS := 1 8 64
 
 # Sources
 RTL_TOP  := rtl/sync_fifo.sv
@@ -43,7 +49,7 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
 .PHONY: help lint lint-async lint-axis lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
-        sim sim-sweep sim-fault sim-coverage fpga-report waveforms all clean
+        sim sim-sweep sim-width-sweep sim-fault sim-coverage fpga-report waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -140,14 +146,14 @@ formal-axis: formal-axis-bmc formal-axis-cover
 formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis
 
 ##─────────────────────────────────────────────────────────────────────────────
-## sim          : Build + run Verilator TB at DEPTH=$(DEPTH); VCD -> docs/waveforms/
+## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
 sim:
 	rm -rf obj_dir
 	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) \
+	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
 	  --top-module sync_fifo \
 	  $(RTL_TOP) $(TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH)" \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH)" \
 	  -o sim_fifo
 	./obj_dir/sim_fifo
 
@@ -158,6 +164,15 @@ sim-sweep:
 	  echo ""; \
 	  echo "════ sim DEPTH=$$d ════"; \
 	  $(MAKE) sim DEPTH=$$d || exit 1; \
+	done
+
+##─────────────────────────────────────────────────────────────────────────────
+## sim-width-sweep : Run sim at each data width in DATA_WIDTHS ($(DATA_WIDTHS))
+sim-width-sweep:
+	@for w in $(DATA_WIDTHS); do \
+	  echo ""; \
+	  echo "════ sim DATA_WIDTH=$$w ════"; \
+	  $(MAKE) sim DATA_WIDTH=$$w || exit 1; \
 	done
 
 ##─────────────────────────────────────────────────────────────────────────────
