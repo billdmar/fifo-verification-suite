@@ -17,19 +17,20 @@
 
 ## ✨ Highlights
 
-- **Four verified designs** — single-clock `sync_fifo` (extra-MSB dual-pointer, registered read), `sync_fifo_fwft` (same core with a **first-word-fall-through / show-ahead** read), dual-clock `async_fifo` (Gray-code pointers + multi-flop CDC synchronizers, Cummings-style), and an `axis_fifo` AXI4-Stream wrapper
-- **Formally verified** — all sync SVA assertions pass BMC at depth 20 (the required gate); the async CDC properties pass multi-clock BMC at depth 16; the FWFT show-ahead/integrity properties pass BMC at depth 20; bounded-liveness/progress proofs gate that the FIFO always drains/fills and never deadlocks
+- **Six verified designs** — single-clock `sync_fifo` (extra-MSB dual-pointer, registered read), `sync_fifo_fwft` (same core with a **first-word-fall-through / show-ahead** read), dual-clock `async_fifo` (Gray-code pointers + multi-flop CDC synchronizers, Cummings-style), an `axis_fifo` AXI4-Stream wrapper, an **`sync_fifo_width` asymmetric-width FIFO** (write width ≠ read width, up/down-sizer), and an **`axis_width_conv` AXI4-Stream width converter** built on it
+- **Width-crossing formally proven** — the asymmetric-width FIFO's pack/unpack data integrity is BMC-proven with an `$anyconst` narrow-beat tracker (every beat delivered in FIFO order at the correct sub-word position), non-vacuity shown by a cover round-trip; up/down-size, ratios 2:1–8:1, and both sub-word orders are swept in simulation
+- **Formally verified** — all sync SVA assertions pass BMC at depth 20 (the required gate); the async CDC properties pass multi-clock BMC at depth 16; FWFT, width-FIFO, and width-converter properties pass BMC; bounded-liveness/progress proofs gate that the FIFO always drains/fills and never deadlocks
 - **Pointer/count/flag invariants are k-induction PROVEN** (unbounded), strengthened with auxiliary inductive invariants — not merely BMC-bounded
-- **Cover witnesses** — fill-to-full, drain-to-empty, pointer wrap, simultaneous R+W, full→empty→full round-trip, and FWFT show-ahead all generate real waveform traces
+- **Cover witnesses** — fill-to-full, drain-to-empty, pointer wrap, simultaneous R+W, full→empty→full round-trip, FWFT show-ahead, and width-crossing round-trip all generate real waveform traces
 - **Two testbenches, two languages** — a Verilator **C++** scoreboard (13 directed scenarios + a 120,000-cycle biased constrained-random run) *and* an industry-standard **cocotb (Python)** testbench, each with an independent `std::queue`/`deque` golden model
-- **Coverage closure** — 10/10 functional-coverage bins hit (enforced as a hard gate) plus 100% Verilator line/toggle/branch/expr coverage; parameter sweeps over both **DEPTH (4–256)** and **DATA_WIDTH (1/8/64)**
-- **Fault-injection self-test** — `make sim-fault` / `sim-cocotb-fault` / `sim-fwft-fault` prove each checker is not vacuous (the scoreboard must catch an intentionally injected error)
-- **AXI4-Stream wrapper** — drop-in `axis_fifo` (tvalid/tready/tdata/tlast) with formal proof of protocol compliance: tvalid/tdata stable-until-accepted, no data loss under backpressure
-- **Real FPGA numbers** — actual Yosys + nextpnr place-and-route on **ECP5 (LFE5U-85F)** and **iCE40 (UP5K)** across the depth sweep (open-source flow, seed-dependent), each labeled with the tool + part it came from ([docs/fpga_results.md](docs/fpga_results.md))
+- **Coverage closure** — 10/10 functional-coverage bins hit (enforced as a hard gate) plus 100% Verilator line/toggle/branch/expr coverage (the annotated report is a CI artifact); parameter sweeps over **DEPTH (4–256)**, **DATA_WIDTH (1/8/64)**, and **width ratios (2:1–8:1, both directions)**
+- **Fault-injection self-test** — `make sim-fault` / `sim-cocotb-fault` / `sim-fwft-fault` / `sim-width-fifo-fault` prove each checker is not vacuous (the scoreboard must catch an intentionally injected error)
+- **AXI4-Stream wrappers** — drop-in `axis_fifo` (tvalid/tready/tdata/tlast) *and* `axis_width_conv` (data-width converter) with formal proof of protocol compliance: tvalid/tdata stable-until-accepted, no data loss under backpressure
+- **Real FPGA — numbers *and* bitstreams** — actual Yosys + nextpnr place-and-route on **ECP5 (LFE5U-85F)** and **iCE40 (UP5K)** across the depth sweep ([docs/fpga_results.md](docs/fpga_results.md)), plus a real **bitstream build** (`make bitstream`) that takes a self-checking demo top all the way to a flashable ECP5 `.bit` + iCE40 `.bin` (open-source flow, seed-dependent, build-only)
 - **Two linters as hard gates** — Verilator `-Wall` *and* Verible style lint, both clean
 - **Parameterizable DEPTH 4–1024** — depth sweep (4, 8, 16, 64, 256) all green in CI
-- **100% open-source toolchain** — OSS CAD Suite (Yosys 0.64, SymbiYosys 0.66, Verilator 5.049, cocotb) + Verible + nextpnr
-- **Green GitHub Actions CI** — lint (Verilator ×4 + Verible), synth, formal (sync BMC + liveness + CDC + AXI + FWFT + cover), C++ & Python simulation, depth + width sweeps, coverage, fault self-tests, and an informational FPGA P&R sweep on every push
+- **100% open-source toolchain** — OSS CAD Suite (Yosys 0.64, SymbiYosys 0.66, Verilator 5.049, cocotb, ecppack/icepack) + Verible + nextpnr
+- **Green GitHub Actions CI** — lint (Verilator ×6 + Verible), synth, formal (sync BMC + liveness + CDC + AXI + FWFT + width + converter + cover), C++ & Python simulation, depth + width sweeps, coverage, fault self-tests, and informational FPGA P&R + bitstream-build jobs on every push
 
 ---
 
@@ -209,6 +210,9 @@ make synth              # Yosys synthesis + area stats
 make lint-async         # async (dual-clock) FIFO lint
 make lint-axis          # AXI4-Stream wrapper lint
 make lint-fwft          # FWFT (show-ahead) FIFO lint
+make lint-width         # asymmetric-width FIFO lint (both directions)
+make lint-axisconv      # AXI4-Stream width converter lint (both directions)
+make lint-demo          # synthesizable demo top lint
 make lint-verible       # Verible style gate (local: VERIBLE=$HOME/verible/bin/verible-verilog-lint)
 make formal-live        # bounded liveness / progress (depth 20) — CI gate
 make formal-cover       # sync cover witnesses (depth 30) — CI gate
@@ -220,7 +224,11 @@ make formal-axis-bmc    # AXI4-Stream protocol BMC (depth 20) — CI gate
 make formal-axis-cover  # AXI4-Stream cover witnesses — CI gate
 make formal-fwft-bmc    # FWFT show-ahead/integrity BMC (depth 20) — CI gate
 make formal-fwft-cover  # FWFT cover witnesses (depth 30) — CI gate
-make formal             # all sync + async + AXI + FWFT formal gates
+make formal-width-bmc   # asymmetric-width width-crossing BMC (depth 14) — CI gate
+make formal-width-cover # asymmetric-width cover witnesses (depth 30) — CI gate
+make formal-axisconv-bmc   # width-converter protocol BMC (depth 14) — CI gate
+make formal-axisconv-cover # width-converter cover witnesses (depth 30) — CI gate
+make formal             # all sync + async + AXI + FWFT + width + converter formal gates
 make sim DEPTH=64       # Simulation at a specific depth
 make sim-sweep          # Sweep DEPTHS="4 8 16 64 256"
 make sim-width-sweep    # Sweep DATA_WIDTHS="1 8 64" — CI gate
@@ -228,9 +236,13 @@ make sim-cocotb         # cocotb (Python) testbench via Verilator — CI gate
 make sim-cocotb-fault   # cocotb anti-vacuity self-test — CI gate
 make sim-fwft           # FWFT (show-ahead) FIFO C++ testbench — CI gate
 make sim-fwft-fault     # FWFT fault-injection self-test — CI gate
-make sim-coverage       # Verilator line/toggle/branch/expr coverage report
+make sim-width-fifo     # asymmetric-width FIFO TB (WR_WIDTH/RD_WIDTH/SUB_WORD_BIG) — CI gate
+make sim-width-fifo-sweep  # width FIFO across both directions, ratios, endianness — CI gate
+make sim-width-fifo-fault  # width FIFO anti-vacuity self-test — CI gate
+make sim-coverage       # Verilator line/toggle/branch/expr coverage report (CI artifact)
 make sim-fault          # Fault-injection self-test (exits 0 only if checker fires)
 make fpga-report        # Real Yosys+nextpnr P&R sweep (ECP5 + iCE40)
+make bitstream          # Build real ECP5 .bit + iCE40 .bin for demo_top
 make waveforms          # Regenerate docs/waveforms/*.svg from the sim VCD
 make clean              # Remove all build artefacts
 make help               # Show all targets
@@ -518,6 +530,7 @@ This repo is precise about formal **PROVEN** (unbounded) vs **PASS**
 
 Full detail: **[docs/proven_vs_tested.md](docs/proven_vs_tested.md)** ·
 consolidated **[verification matrix](docs/verification_matrix.md)** ·
+**[requirement→property→witness traceability](docs/traceability.md)** ·
 **[assertion catalogue + density](docs/assertions.md)** ·
 **[datasheet](docs/datasheet.md)** ·
 **[CDC architecture](docs/cdc_architecture.md)** (with diagram).
@@ -538,6 +551,7 @@ fifo-verification-suite/
 │   ├── proven_vs_tested.md    # Honest proven / BMC / sim / out-of-scope split
 │   ├── assertions.md          # Per-property assertion catalogue + density metric
 │   ├── datasheet.md           # Compact signal/parameter/performance datasheet
+│   ├── traceability.md        # Requirement → property → witness matrix (all designs)
 │   └── waveforms/
 │       ├── .gitkeep
 │       └── wave_*.svg          # Timing diagrams generated from the sim VCD
@@ -554,19 +568,28 @@ fifo-verification-suite/
 │   ├── axis_fifo_bmc.sby       # AXI4-Stream protocol BMC (depth 20, CI gate)
 │   ├── axis_fifo_cover.sby     # AXI4-Stream cover witnesses (CI gate)
 │   ├── sync_fifo_fwft_bmc.sby  # FWFT show-ahead/integrity BMC (depth 20, CI gate)
-│   └── sync_fifo_fwft_cover.sby # FWFT cover witnesses (depth 30, CI gate)
+│   ├── sync_fifo_fwft_cover.sby # FWFT cover witnesses (depth 30, CI gate)
+│   ├── sync_fifo_width_bmc.sby  # asymmetric-width width-crossing BMC (depth 14, CI gate)
+│   ├── sync_fifo_width_cover.sby # asymmetric-width cover witnesses (depth 30, CI gate)
+│   ├── axis_width_conv_bmc.sby  # width-converter protocol BMC (depth 14, CI gate)
+│   └── axis_width_conv_cover.sby # width-converter cover witnesses (depth 30, CI gate)
 ├── rtl/
 │   ├── sync_fifo.sv            # DUT — parameterizable synchronous FIFO (registered read)
 │   ├── sync_fifo_properties.sv # sync SVA properties (explicit-instantiation module)
 │   ├── sync_fifo_fwft.sv       # DUT — first-word-fall-through / show-ahead FIFO (inlined SVA)
+│   ├── sync_fifo_width.sv      # DUT — asymmetric-width FIFO (WR≠RD, up/down-sizer, inlined SVA)
 │   ├── async_fifo.sv           # DUT — dual-clock CDC FIFO (Gray + synchronizers, inlined SVA)
-│   └── axis_fifo.sv            # AXI4-Stream wrapper around sync_fifo (inlined SVA)
+│   ├── axis_fifo.sv            # AXI4-Stream wrapper around sync_fifo (inlined SVA)
+│   ├── axis_width_conv.sv      # AXI4-Stream width converter on sync_fifo_width (inlined SVA)
+│   └── demo_top.sv             # Synthesizable self-checking loopback (bitstream target)
 ├── scripts/
 │   ├── fpga_report.sh         # Yosys + nextpnr P&R sweep (ECP5 + iCE40)
+│   ├── build_bitstream.sh     # demo_top -> real ECP5 .bit + iCE40 .bin (yosys/nextpnr/pack)
 │   └── gen_waveforms.py       # VCD -> SVG timing diagrams (stdlib only)
 ├── tb/
 │   ├── tb_sync_fifo.cpp        # Verilator C++ TB + std::queue scoreboard (13 tests + coverage)
 │   ├── tb_sync_fifo_fwft.cpp   # Verilator C++ TB for the FWFT (show-ahead) FIFO
+│   ├── tb_sync_fifo_width.cpp  # Verilator C++ TB for the asymmetric-width FIFO (golden pack/unpack)
 │   ├── tb_sync_fifo_cocotb.py  # cocotb (Python) TB — deque golden model, self-contained runner
 │   └── requirements.txt        # cocotb pin (only needed without OSS CAD Suite)
 ├── .rules.verible_lint         # Verible style-lint config

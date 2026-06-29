@@ -156,6 +156,14 @@ jobs:
           path: docs/waveforms/sim_waves.vcd
           if-no-files-found: warn
 
+      - name: Upload Verilator coverage report (line/toggle/branch/expr annotated)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verilator-coverage-report
+          path: logs_annotated/
+          if-no-files-found: warn
+
   # ── Informational — real FPGA P&R sweep (ECP5 + iCE40). Non-gating: open-source
   #    place-and-route is slow and heuristic; committed numbers live in
   #    docs/fpga_results.md. This job re-runs the flow to keep them honest. ──────
