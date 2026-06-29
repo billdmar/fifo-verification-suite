@@ -1,0 +1,17 @@
+[options]
+mode cover
+depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL sync_fifo_width.sv
+read -formal -DFORMAL axis_width_conv.sv
+# Same small 2:1 down-sizer instance as the BMC gate.
+chparam -set S_WIDTH 8 -set M_WIDTH 4 -set DEPTH_NARROW 8 axis_width_conv
+prep -top axis_width_conv
+
+[files]
+rtl/sync_fifo_width.sv
+rtl/axis_width_conv.sv

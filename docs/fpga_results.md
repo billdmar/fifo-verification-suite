@@ -75,3 +75,32 @@ lifting Fmax back to ~73 MHz.
 - Counts are not strictly monotonic in DEPTH because the mapper's
   distributed-vs-block-RAM decision and packing change the resource mix at each
   size; each row is an independent real P&R run.
+
+## Real bitstream build (RTL → chip)
+
+Beyond the area/timing *report* above, `scripts/build_bitstream.sh`
+(`make bitstream`) takes a synthesizable demo top all the way to a real,
+flashable **bitstream** on both Lattice targets — the full
+`yosys → nextpnr → ecppack/icepack` flow:
+
+| Target | Flow | Output | Size | Post-route Fmax |
+|--------|------|--------|------|-----------------|
+| ECP5 LFE5U-85F (CABGA381) | `synth_ecp5` → `nextpnr-ecp5` → `ecppack` | `demo_top_ecp5.bit` | ~1.93 MB | ~146 MHz |
+| iCE40 UP5K (SG48) | `synth_ice40` → `nextpnr-ice40` → `icepack` | `demo_top_ice40.bin` | ~104 KB | ~31 MHz |
+
+`rtl/demo_top.sv` is a self-checking loopback: a free-running byte counter is
+streamed through an **8→32 up-sizer** then a **32→8 down-sizer**
+(`axis_width_conv`), and an on-chip checker compares the round-tripped byte
+against a reference, driving a heartbeat LED (solid-off on a — never-expected —
+mismatch). It exercises the round-trip composition of the round-2 width
+converters on real silicon resources.
+
+The two converters cascaded are heavier than a single FIFO, so the **UP5K** (the
+small/low-power part) closes timing around ~31 MHz here versus the ~59–73 MHz of
+the bare FIFO above — expected for the larger design on the slower fabric.
+
+> **Honest scope:** this is **build-only** — CI (and `make bitstream`) emit and
+> archive the `.bit`/`.bin`, but no physical board is programmed. The flow proves
+> the RTL routes and packs into a legal bitstream end-to-end; **functional**
+> correctness is established by the formal proofs and the Verilator/cocotb
+> testbenches, not by this step. Open-source flow (Yosys + nextpnr), seed 1.
