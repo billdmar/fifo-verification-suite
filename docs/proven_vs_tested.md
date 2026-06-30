@@ -32,6 +32,12 @@ BMC-bounded (below) — they are guarded under `FORMAL_DATA` and omitted from th
 prove gate, since the shadow tracker cannot bind to the DUT `mem[]` on the
 open-source Yosys frontend (same documented limitation as `sync_fifo`).
 
+**`sync_fifo_ecc`** (k-induction `formal/sync_fifo_ecc_prove.sby`): the
+pointer/count/flag core closes k-induction (PROVEN) — the SECDED encode/decode is
+purely combinational and doesn't touch the pointers, so the inductive core is
+identical to `sync_fifo`'s. (The SECDED correct/detect behaviour is proven
+*exhaustively over every error position* by BMC — see below.)
+
 ## ✅ Formally CHECKED — BMC-bounded (sound within the depth)
 
 Proven by Bounded Model Checking to the stated depth. The depth is chosen to
@@ -46,6 +52,20 @@ are exhaustive over every reachable scenario within that window.
 | AXI4-Stream protocol — tvalid/tdata/tlast stable-until-accepted, no loss under backpressure, no spurious valid, end-to-end data/last integrity | axis | 20 |
 | Show-ahead data-at-head + no-dup/no-read-before-write (`$anyconst`; ring invariants are k-induction PROVEN above) | fwft | 20 |
 | Width-crossing data integrity (`$anyconst` narrow-beat tracker) + pointer/count/flag invariants, no over/underflow | sync_fifo_width | 14 |
+| Store-and-forward + packet atomicity + end-to-end {tdata,tlast} integrity (`$anyconst`) | axis_pkt_fifo | 14 |
+| **SECDED correct/detect — EXHAUSTIVE over every error position** (`$anyconst` error mask): single-bit corrected + `single_err`; double-bit detected + `double_err` | sync_fifo_ecc | 16 |
+
+**On the SECDED ECC FIFO (`sync_fifo_ecc`).** Each 8-bit word is stored as a
+13-bit extended-Hamming (13,8) codeword. The correct/detect behaviour is proven
+**exhaustively over every error position** by formal fault injection: under
+`FORMAL_DATA`, an `$anyconst` error mask (exactly two solver-chosen bit positions)
+is XORed into the stored codeword on read, so BMC discharges the correction
+(weight-1 → data restored + `single_err`) and detection (weight-2 → `double_err`)
+assertions for *all* positions — not a sampled subset. The synth path carries NO
+error-injection logic (it is `` `ifdef FORMAL ``-only). Covers `c_single_corrected`
++ `c_double_detected` witness a real corrected single / detected double
+(non-vacuity). Out of scope: 3+-bit errors (SECDED does not claim them — see
+below); errors in the pointer/control logic (only the data word is ECC-protected).
 
 **On the asymmetric-width FIFO (`sync_fifo_width`).** The width-crossing data
 integrity is formally proven by BMC (depth 14) on **two** instances covering
@@ -112,3 +132,17 @@ Verilator C++ testbench with a `std::queue` golden-model scoreboard:
   the limit. The suite-wide no-deadlock guarantee is about the single-clock
   plain/FWFT FIFOs' `!full || !empty` progress and does **not** extend to a
   store-and-forward buffer fed a non-conformant (oversized) packet.
+- **`sync_fifo_ecc` triple-bit (3+) errors**: a SECDED (13,8) code corrects 1-bit
+  and detects 2-bit errors by construction; 3-or-more-bit errors in one codeword
+  are **out of scope** (may miscorrect or alias) — this is the definition of
+  SECDED, stated plainly, not a gap. Only the stored *data word* is protected
+  (the pointer/control logic is not ECC-covered — a separate concern). DATA_WIDTH
+  is fixed at 8 this release; generalization to other widths is documented future
+  work.
+- **Async `async_fifo` k-induction**: still informational (basecase passes, step
+  open). A round-4 time-boxed attempt (per-domain gray/monotonicity aux invariants
+  + `FORMAL_DATA`-guarded data tracker) did NOT close the step — the gated-
+  multiclock model admits inductive start states where `$past(wgray)` isn't a
+  valid encoding of `$past(wbin)`, and pinning that across the synchronizer chain
+  + relative clock phase is research-hard. Async guarantees remain BMC depth-16 +
+  cover (unchanged, honest).
