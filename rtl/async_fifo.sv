@@ -352,7 +352,10 @@ module async_fifo #(
     //   domain pops that slot, rd_data one rd_clk later must match. Honest
     //   scope: closes under BMC (the same mem[]-binding limitation that the
     //   sync design documents prevents a clean k-induction proof of this one).
+    //   Guarded under FORMAL_DATA so the k-induction `prove` gate can omit it and
+    //   close the per-domain gray/pointer subset (the BMC gate defines it).
     // -------------------------------------------------------------------------
+`ifdef FORMAL_DATA
     (* anyconst *) logic [ADDR_WIDTH-1:0] f_track_slot;
 
     logic [DATA_WIDTH-1:0] f_tracked_data;
@@ -416,6 +419,7 @@ module async_fifo #(
             rd_rst_n && f_tracked_written &&
             do_read && (raddr == f_track_slot) && f_tracked_valid);
     end
+`endif // FORMAL_DATA
 
 `endif // FORMAL
 

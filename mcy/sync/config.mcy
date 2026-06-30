@@ -3,12 +3,12 @@ size 100
 tags COVERED UNCOVERED
 
 [script]
-read -sv ../rtl/sync_fifo.sv
+read -sv ../../rtl/sync_fifo.sv
 chparam -set DEPTH 8 sync_fifo
 prep -top sync_fifo
 
 [files]
-../rtl/sync_fifo_properties.sv
+../../rtl/sync_fifo_properties.sv
 sync_fifo_mcy_tb.sv
 test_fm.sby
 

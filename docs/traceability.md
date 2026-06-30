@@ -90,6 +90,16 @@ subset — round 3; the `$anyconst` show-ahead data props remain BMC-bounded, sa
 | No overflow / no loss under backpressure | `a_no_push_when_full`, `a_no_pop_when_stalled` | BMC 14 | `c_stall_then_resume` |
 | Random packets + backpressure correct | packet-aware deque golden model | SIM | `sim-pktfifo-fault` |
 
+## sync_fifo_ecc (SECDED-protected FIFO) — round 4
+
+| Requirement | Property / check | Method | Witness |
+|-------------|------------------|--------|---------|
+| **Single-bit stored error → CORRECTED + flagged**, every position | `a_single_corrected`, `a_single_flagged` (`$anyconst` error mask) | BMC 16, **exhaustive over all 13 positions** | `c_single_corrected` |
+| **Double-bit stored error → DETECTED**, every position pair | `a_double_detected` (`$anyconst`) | BMC 16, exhaustive | `c_double_detected` |
+| Clean (no-error) datapath transparent + flags quiescent | `a_clean_passthrough` + 20k-cycle round-trip | BMC 16 + SIM | `sim-ecc-fault` |
+| Pointer/count/flag core | `a_no_full_and_empty`, `a_count_*`, `a_*_iff_*`, monotonicity | **PROVEN** (k-ind) | `c_reach_full`, `c_full_then_empty` |
+| 3+-bit errors | — | OUT OF SCOPE (SECDED limitation, documented) | — |
+
 ---
 
 ## Coverage evidence

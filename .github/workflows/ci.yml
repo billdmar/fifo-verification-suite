@@ -51,6 +51,9 @@ jobs:
       - name: Lint — store-and-forward packet FIFO (Verilator)
         run: make lint-pktfifo
 
+      - name: Lint — SECDED ECC FIFO (Verilator)
+        run: make lint-ecc
+
       - name: Lint — Verible style gate (all RTL)
         run: make lint-verible
 
@@ -111,6 +114,15 @@ jobs:
       - name: Formal — store-and-forward packet FIFO cover reachability (gate)
         run: make formal-pktfifo-cover
 
+      - name: Formal — SECDED ECC correct/detect over all error positions BMC depth 16 (gate)
+        run: make formal-ecc-bmc
+
+      - name: Formal — SECDED ECC cover reachability (corrected single / detected double) (gate)
+        run: make formal-ecc-cover
+
+      - name: Formal — SECDED ECC pointer/count/flag k-induction PROVEN (gate)
+        run: make formal-ecc-prove
+
       - name: Simulate — Verilator TB depth 8 + functional coverage (gate)
         run: make sim
 
@@ -153,6 +165,12 @@ jobs:
 
       - name: Self-test — packet-FIFO fault injection must be caught (gate)
         run: make sim-pktfifo-fault
+
+      - name: Simulate — SECDED ECC FIFO clean-path TB (gate)
+        run: make sim-ecc
+
+      - name: Self-test — ECC fault injection must be caught (gate)
+        run: make sim-ecc-fault
 
       # ── Informational — k-induction proofs (may be slow / not fully closed)
       - name: Formal — sync k-induction proof depth 15 (informational)
@@ -265,5 +283,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mcy-mutation-db
-          path: mcy/database/
+          path: mcy/sync/database/
           if-no-files-found: warn

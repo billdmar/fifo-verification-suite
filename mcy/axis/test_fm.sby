@@ -1,0 +1,18 @@
+[options]
+mode bmc
+depth 12
+expect pass,fail
+
+[engines]
+smtbmc yices
+
+[script]
+# Mutated, fully-elaborated axis_fifo (incl. its inlined AXI properties + the
+# sync_fifo submodule) comes from mutated.il — the mcy design was read with
+# -DFORMAL so assertions travel with the mutated logic. A mutation violating any
+# inlined AXI property yields a counterexample (FAIL = mutant killed).
+read_rtlil mutated.il
+prep -top axis_fifo
+
+[files]
+mutated.il

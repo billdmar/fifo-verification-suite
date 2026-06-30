@@ -1,0 +1,17 @@
+[options]
+mode cover
+depth 30
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL -DFORMAL_DATA sync_fifo_ecc.sv
+# Same DEPTH=8 instance; -DFORMAL_DATA so the SECDED covers (c_single_corrected,
+# c_double_detected) — the non-vacuity witnesses that a real corrected single-bit
+# error and a real detected double-bit error are reachable — are included.
+chparam -set DEPTH 8 sync_fifo_ecc
+prep -top sync_fifo_ecc
+
+[files]
+rtl/sync_fifo_ecc.sv

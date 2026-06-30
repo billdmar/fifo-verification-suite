@@ -119,6 +119,35 @@ happens":
 Together: the assertions are reachable (covers), the checkers are awake (fault
 injection), and the suite catches real bugs at scale (mutation testing).
 
+## 8. SECDED ECC: exhaustive fault-injection proof (`sync_fifo_ecc`)
+
+Fault *tolerance* needs a different proof shape than the FIFO control properties.
+`sync_fifo_ecc` stores each 8-bit word as a 13-bit extended-Hamming (13,8)
+codeword; we must prove it **corrects any single-bit and detects any double-bit
+error** in the stored word. The elegant part: an error is a *bounded combinational
+perturbation*, so it is **fully provable** — no unbounded reasoning needed.
+
+- **Formal-only error injection (clean synth path).** Under `` `ifdef FORMAL_DATA ``
+  an `(* anyconst *)` error mask is XORed into the stored codeword on the read
+  path. The synthesizable design has **no** error-injection logic — the mask
+  exists only in the proof. The two error positions are themselves `$anyconst`
+  (`f_pos_a`, `f_pos_b`); equal ⇒ a weight-1 error, distinct ⇒ weight-2.
+- **Exhaustive, not sampled.** Because the positions are solver-chosen constants,
+  BMC discharges the assertions for *every* error position (and every pair) in one
+  proof — `a_single_corrected` (decoded data == originally written data) +
+  `a_single_flagged` for weight-1, `a_double_detected` for weight-2. This is
+  stronger than any finite set of simulated bit-flips: it's a proof over the whole
+  error space, in ~90 s.
+- **Why use `$anyconst` positions instead of `$countones(mask)==k`.** Constraining
+  a popcount is expensive for the SMT solver; choosing two free position indices
+  and forcing the mask to exactly those bits gives the same coverage far more
+  cheaply (a pattern worth reusing for any "exactly-k-bit-error" proof).
+- **Layering.** The ECC encode/decode is purely combinational, so it doesn't touch
+  the ring pointers — the pointer/count/flag core closes k-induction unchanged
+  (`sync_fifo_ecc_prove.sby`), and the clean (no-error) datapath is sim-validated
+  every cycle. Honest boundary: 3+-bit errors are out of SECDED scope (§
+  [proven_vs_tested.md](proven_vs_tested.md)).
+
 ---
 
 See [assertions.md](assertions.md) for the per-property catalogue,

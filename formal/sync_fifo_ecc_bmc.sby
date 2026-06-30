@@ -1,0 +1,19 @@
+[options]
+mode bmc
+depth 16
+
+[engines]
+smtbmc yices
+
+[script]
+read -formal -DFORMAL -DFORMAL_DATA sync_fifo_ecc.sv
+# DEPTH=8 harness. -DFORMAL_DATA enables the SECDED fault-injection proof: an
+# $anyconst error mask (exactly the two solver-chosen positions f_pos_a/f_pos_b)
+# is XORed into the stored codeword on read, and the decode is proven to correct
+# (weight-1) / detect (weight-2) for EVERY error position. depth 16 covers a
+# write→read round-trip of the tracked slot.
+chparam -set DEPTH 8 sync_fifo_ecc
+prep -top sync_fifo_ecc
+
+[files]
+rtl/sync_fifo_ecc.sv

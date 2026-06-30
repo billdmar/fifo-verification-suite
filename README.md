@@ -8,7 +8,7 @@
 [![Formal](https://img.shields.io/badge/Formal-SymbiYosys-blue?style=for-the-badge)]()
 [![Sim](https://img.shields.io/badge/Sim-Verilator-green?style=for-the-badge)]()
 [![BMC](https://img.shields.io/badge/BMC-all_assertions_PASS-brightgreen?style=for-the-badge)]()
-[![CDC](https://img.shields.io/badge/CDC-async_FIFO_proven-blueviolet?style=for-the-badge)]()
+[![CDC](https://img.shields.io/badge/CDC-async_FIFO_BMC--proven-blueviolet?style=for-the-badge)]()
 [![Coverage](https://img.shields.io/badge/Functional_coverage-10%2F10_bins-brightgreen?style=for-the-badge)]()
 [![AXI4-Stream](https://img.shields.io/badge/AXI4--Stream-protocol_proven-red?style=for-the-badge)]()
 [![FPGA](https://img.shields.io/badge/FPGA-ECP5_%2B_iCE40_real_P%26R-informational?style=for-the-badge)]()
@@ -17,8 +17,9 @@
 
 ## ✨ Highlights
 
-- **Seven verified designs** — single-clock `sync_fifo` (extra-MSB dual-pointer, registered read), `sync_fifo_fwft` (same core with a **first-word-fall-through / show-ahead** read), dual-clock `async_fifo` (Gray-code pointers + multi-flop CDC synchronizers, Cummings-style), an `axis_fifo` AXI4-Stream wrapper, an `sync_fifo_width` **asymmetric-width FIFO** (write width ≠ read width, up/down-sizer), an `axis_width_conv` **AXI4-Stream width converter** built on it, and an `axis_pkt_fifo` **store-and-forward packet FIFO** (TLAST-aware, packet-atomicity proven)
-- **Mutation-tested — proof the assertions catch bugs** — `make mutate` runs `mcy` (Mutation Cover with Yosys) against `sync_fifo`: **92% mutation kill-rate**, and all 8 survivors are proven *equivalent mutants* (0 real coverage gaps) — see [docs/mutation_testing.md](docs/mutation_testing.md)
+- **Eight verified designs** — single-clock `sync_fifo` (extra-MSB dual-pointer, registered read), `sync_fifo_fwft` (same core with a **first-word-fall-through / show-ahead** read), dual-clock `async_fifo` (Gray-code pointers + multi-flop CDC synchronizers, Cummings-style), an `axis_fifo` AXI4-Stream wrapper, an `sync_fifo_width` **asymmetric-width FIFO** (write width ≠ read width, up/down-sizer), an `axis_width_conv` **AXI4-Stream width converter** built on it, an `axis_pkt_fifo` **store-and-forward packet FIFO** (TLAST-aware, packet-atomicity proven), and a `sync_fifo_ecc` **SECDED fault-tolerant FIFO** (single-error-correcting, double-error-detecting memory)
+- **Fault tolerance, exhaustively proven** — `sync_fifo_ecc` stores each word as a 13-bit extended-Hamming (13,8) codeword and **corrects any single-bit / detects any double-bit** stored error. The correct/detect behaviour is proven **over EVERY error position** by formal fault injection (an `$anyconst` error mask, `` `ifdef FORMAL ``-only — the synth path is clean), not a sampled set — see [docs/mutation_testing.md](docs/mutation_testing.md) sibling [docs/formal_proof_methodology.md §8](docs/formal_proof_methodology.md)
+- **Mutation-tested — proof the assertions catch bugs** — `make mutate` runs `mcy` (Mutation Cover with Yosys) against `sync_fifo`: **92% mutation kill-rate**, all 8 survivors proven *equivalent mutants* (0 real coverage gaps). Per-design mcy explorations for `async`/`axis` (`make mutate-async`/`mutate-axis`) + an honest methodology caveat — see [docs/mutation_testing.md](docs/mutation_testing.md)
 - **Width-crossing formally proven, both directions** — the asymmetric-width FIFO's pack/unpack data integrity is BMC-proven with an `$anyconst` narrow-beat tracker on **both a 2:1 down-sizer and a 2:1 up-sizer**; higher ratios (4:1/8:1) and big sub-word order are swept in simulation
 - **Store-and-forward packet atomicity** — `axis_pkt_fifo` formally proves a packet's beats are never released until its TLAST is committed (the network-switch store-and-forward invariant), plus packet-count conservation and end-to-end TLAST integrity. (Store-and-forward inherently requires the whole packet to fit: packets must be ≤ DEPTH-1 beats — a documented producer contract, asserted formally as `m_pkt_fits`.)
 - **Formally verified** — sync SVA passes BMC depth 20; async CDC passes multi-clock BMC depth 16; FWFT, width (both directions), converter, and packet-FIFO properties pass BMC; **for the single-clock plain/FWFT FIFOs**, bounded-liveness/progress proofs gate that they always drain/fill and never deadlock (the store-and-forward `axis_pkt_fifo` is bounded by the ≤ DEPTH-1 packet contract above, not this no-deadlock guarantee)
@@ -246,7 +247,11 @@ make formal-fwft-prove  # FWFT pointer/count/flag k-induction PROVEN — CI gate
 make formal-width       # asymmetric-width BMC+cover, BOTH directions — CI gate
 make formal-pktfifo     # store-and-forward packet FIFO BMC+cover — CI gate
 make sim-pktfifo        # packet FIFO C++ scoreboard — CI gate
-make mutate             # mutation testing (mcy kill-rate)
+make formal-ecc         # SECDED ECC FIFO BMC(correct/detect)+cover+k-ind — CI gate
+make sim-ecc            # ECC FIFO clean-path C++ scoreboard — CI gate
+make mutate             # mutation testing — sync_fifo (mcy kill-rate)
+make mutate-async       # mutation testing — async_fifo (exploratory)
+make mutate-axis        # mutation testing — axis_fifo (exploratory)
 make perf-report        # cycle-accurate throughput/latency table
 make fpga-report        # Real Yosys+nextpnr P&R sweep (ECP5 + iCE40)
 make bitstream          # Build real ECP5 .bit + iCE40 .bin for demo_top
@@ -591,16 +596,20 @@ fifo-verification-suite/
 │   ├── sync_fifo_width_up_bmc.sby   # asymmetric-width UP-sizer BMC (depth 14, CI gate)
 │   ├── sync_fifo_width_up_cover.sby # asymmetric-width UP-sizer covers (CI gate)
 │   ├── axis_pkt_fifo_bmc.sby   # store-and-forward packet FIFO BMC (depth 14, CI gate)
-│   └── axis_pkt_fifo_cover.sby # store-and-forward packet FIFO covers (CI gate)
-├── mcy/
-│   ├── config.mcy             # mutation-testing config (mutate sync_fifo, kill via formal)
-│   ├── test_fm.sh / test_fm.sby # per-mutant formal kill test
-│   └── sync_fifo_mcy_tb.sv    # bare-instantiation harness for the pre-elaborated mutant
+│   ├── axis_pkt_fifo_cover.sby # store-and-forward packet FIFO covers (CI gate)
+│   ├── sync_fifo_ecc_bmc.sby   # SECDED correct/detect over all error positions (depth 16, CI gate)
+│   ├── sync_fifo_ecc_cover.sby # SECDED cover witnesses (corrected single / detected double)
+│   └── sync_fifo_ecc_prove.sby # SECDED pointer/count/flag k-induction PROVEN (CI gate)
+├── mcy/                        # mutation testing — per-design subprojects (mcy reads ./config.mcy)
+│   ├── sync/                   # sync_fifo (separate-property module → clean 92% kill-rate)
+│   ├── axis/                   # axis_fifo (inlined props — exploratory, see docs caveat)
+│   └── async/                  # async_fifo (inlined props, multiclock — exploratory)
 ├── rtl/
 │   ├── sync_fifo.sv            # DUT — parameterizable synchronous FIFO (registered read)
 │   ├── sync_fifo_properties.sv # sync SVA properties (explicit-instantiation module)
 │   ├── sync_fifo_fwft.sv       # DUT — first-word-fall-through / show-ahead FIFO (inlined SVA)
 │   ├── sync_fifo_width.sv      # DUT — asymmetric-width FIFO (WR≠RD, up/down-sizer, inlined SVA)
+│   ├── sync_fifo_ecc.sv        # DUT — SECDED fault-tolerant FIFO (13,8 Hamming, inlined SVA)
 │   ├── async_fifo.sv           # DUT — dual-clock CDC FIFO (Gray + synchronizers, inlined SVA)
 │   ├── axis_fifo.sv            # AXI4-Stream wrapper around sync_fifo (inlined SVA)
 │   ├── axis_width_conv.sv      # AXI4-Stream width converter on sync_fifo_width (inlined SVA)
@@ -616,6 +625,7 @@ fifo-verification-suite/
 │   ├── tb_sync_fifo_fwft.cpp   # Verilator C++ TB for the FWFT (show-ahead) FIFO
 │   ├── tb_sync_fifo_width.cpp  # Verilator C++ TB for the asymmetric-width FIFO (golden pack/unpack)
 │   ├── tb_axis_pkt_fifo.cpp    # Verilator C++ TB for the store-and-forward packet FIFO
+│   ├── tb_sync_fifo_ecc.cpp    # Verilator C++ TB for the SECDED ECC FIFO (clean-path round-trip)
 │   ├── perf_sync_fifo.cpp      # throughput/latency characterization harness
 │   ├── tb_sync_fifo_cocotb.py  # cocotb (Python) TB — deque golden model, self-contained runner
 │   └── requirements.txt        # cocotb pin (only needed without OSS CAD Suite)
