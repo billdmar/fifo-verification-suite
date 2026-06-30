@@ -18,5 +18,5 @@ prep -top sync_fifo_formal_tb
 
 [files]
 mutated.il
-../../../rtl/sync_fifo_properties.sv
+../../../../rtl/sync_fifo_properties.sv
 ../../sync_fifo_mcy_tb.sv

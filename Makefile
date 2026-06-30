@@ -516,11 +516,21 @@ bitstream:
 	./scripts/build_bitstream.sh
 
 ##─────────────────────────────────────────────────────────────────────────────
-## mutate       : Mutation testing — kill sync_fifo mutants with the formal suite (mcy)
+## mutate       : Mutation testing — kill sync_fifo mutants with its formal suite (mcy)
 mutate:
-	$(ENV) cd mcy && rm -rf database tasks && mcy init && mcy run -j$(MCY_JOBS) && mcy status
+	$(ENV) cd mcy/sync && rm -rf database tasks && mcy init && mcy run -j$(MCY_JOBS) && mcy status
 
-## MCY_JOBS override parallelism for `make mutate`
+##─────────────────────────────────────────────────────────────────────────────
+## mutate-async : Mutation testing — async_fifo (multi-clock CDC properties)
+mutate-async:
+	$(ENV) cd mcy/async && rm -rf database tasks && mcy init && mcy run -j$(MCY_JOBS) && mcy status
+
+##─────────────────────────────────────────────────────────────────────────────
+## mutate-axis  : Mutation testing — axis_fifo (AXI4-Stream protocol properties)
+mutate-axis:
+	$(ENV) cd mcy/axis && rm -rf database tasks && mcy init && mcy run -j$(MCY_JOBS) && mcy status
+
+## MCY_JOBS override parallelism for `make mutate*`
 MCY_JOBS ?= 4
 
 ##─────────────────────────────────────────────────────────────────────────────

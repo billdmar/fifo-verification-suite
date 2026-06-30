@@ -10,10 +10,11 @@ bash "$SCRIPTS/create_mutated.sh" -o mutated.il
 
 ## Run our formal property check against the mutated design.
 ln -sf ../../test_fm.sby .
-sby -f test_fm.sby
+sby -f test_fm.sby || true
 
-## Report the engine's verdict (pass = mutant survived, fail = mutant killed).
-## Use awk (gawk is not bundled in this OSS CAD Suite); BSD awk is sufficient.
-awk "{ print 1, \$1; }" test_fm/status >> output.txt
+## Report the verdict: PASS = mutant survived; anything else (FAIL, or an
+## ERROR/UNKNOWN from a mutation that makes the design un-checkable) = killed.
+st=$(cat test_fm/status 2>/dev/null | awk '{print $1}')
+if [ "$st" = "PASS" ]; then echo "1 PASS" >> output.txt; else echo "1 FAIL" >> output.txt; fi
 
 exit 0

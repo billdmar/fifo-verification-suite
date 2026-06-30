@@ -63,8 +63,43 @@ A mutation testing tool cannot kill a mutation of redundant logic, by definition
   scoreboard** to confirm equivalence beyond the BMC window.
 - mcy runs as an **informational** CI job (mutation campaigns are slow and
   resource-variable); the gating verification remains the formal + sim suite.
-- This campaign targets `sync_fifo`; the same harness pattern extends to the other
-  designs (future work).
+
+## Per-design results & a methodology caveat (`make mutate-async` / `mutate-axis`)
+
+The round-4 work extended mcy to `async_fifo` and `axis_fifo` (`mcy/async/`,
+`mcy/axis/`). These surfaced a real, instructive methodology point worth stating
+plainly rather than headlining a flattering single number:
+
+| Design | mutation harness | clean DUT-logic kill-rate |
+|--------|------------------|---------------------------|
+| `sync_fifo` | properties in a **separate** module — mcy mutates *only* the DUT | **92%** (8 survivors all equivalent — the clean reference) |
+| `axis_fifo` | properties **inlined** under `` `ifdef FORMAL `` | ~53% synth-logic (see caveat) |
+| `async_fifo` | properties **inlined**, multi-clock | ~56% synth-logic (see caveat) |
+
+**Why the inlined-property numbers are lower — and not directly comparable:** for
+`sync_fifo` the SVA lives in a separate `sync_fifo_properties.sv`, so mcy mutates
+*only* the synthesizable DUT — a clean kill-rate. For `axis_fifo`/`async_fifo` the
+properties are **inlined** in the RTL, so to have the assertions present in the
+mutated netlist mcy must read the source with `-DFORMAL` — which also exposes the
+**formal-only scaffolding** (the `assert`/`cover` cells, `$anyconst` trackers,
+counters) to mutation. Mutating that scaffolding produces "survivors" that say
+nothing about DUT quality. Classifying survivors by source line (synthesizable
+region vs the `` `ifdef FORMAL `` block) recovers a DUT-logic-only rate, but it is
+*still* depressed by two effects: (1) the per-mutant BMC depth is trimmed (12–16)
+to keep the broad campaign tractable, so some synth-logic mutants are *false
+survivors* a deeper window would catch; and (2) for the wrappers, many DUT
+mutations land in the `sync_fifo` submodule whose internal data integrity the
+*wrapper's protocol* properties intentionally don't re-prove (that is the
+submodule's own gate's job).
+
+**Honest takeaway:** the **clean, comparable mutation-kill metric is
+`sync_fifo`'s 92%** (separate-property module → DUT-only mutation). The
+`async`/`axis` harnesses are provided as runnable per-design explorations and as a
+demonstration of *why* inlined-property modules need separate-property extraction
+(or per-region mutation selection) for an apples-to-apples kill-rate — a genuine
+verification-engineering nuance, not a number to inflate. Extracting the inlined
+properties into separate modules for clean wrapper kill-rates is documented
+future work.
 
 See [proven_vs_tested.md](proven_vs_tested.md) and [traceability.md](traceability.md)
 for the formal/sim verification matrix this metric complements.

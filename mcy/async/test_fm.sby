@@ -1,0 +1,21 @@
+[options]
+mode bmc
+depth 16
+multiclock on
+expect pass,fail
+
+[engines]
+smtbmc yices
+
+[script]
+# Mutated async_fifo from mutated.il (replaces the original); the multi-clock
+# harness is read from source. Same DEPTH=8 / depth-16 multiclock instance as the
+# async BMC gate, so a mutation violating any inlined CDC property yields a
+# counterexample (FAIL = mutant killed).
+read_rtlil mutated.il
+read -formal -DFORMAL async_fifo_mcy_tb.sv
+prep -top async_fifo_formal_tb
+
+[files]
+mutated.il
+../../async_fifo_mcy_tb.sv

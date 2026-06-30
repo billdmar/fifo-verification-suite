@@ -1,0 +1,41 @@
+[options]
+size 60
+tags COVERED UNCOVERED
+
+[script]
+# Read WITH -DFORMAL so the inlined CDC properties travel with the mutated design.
+# prep -top async_fifo so mcy mutates ONLY the async_fifo logic cells (incl. its
+# assertions, which are inert mutation targets); test_fm.sby re-instantiates the
+# mutated async_fifo under the multiclock harness.
+read -formal -DFORMAL ../../rtl/async_fifo.sv
+chparam -set DEPTH 8 -set SYNC_STAGES 2 async_fifo
+prep -top async_fifo
+
+[files]
+async_fifo_mcy_tb.sv
+test_fm.sby
+
+[logic]
+# A mutant of async_fifo is COVERED (killed) iff its inlined multi-clock CDC
+# properties FAIL on the mutated design (Gray-one-bit, no over/underflow, cross-
+# domain data integrity, etc.).
+fm = result("test_fm")
+if fm == "FAIL":
+    tag("COVERED")
+elif fm == "PASS":
+    tag("UNCOVERED")
+else:
+    tag("UNCOVERED")
+
+[report]
+n_cov = tags("COVERED")
+n_unc = tags("UNCOVERED")
+if n_cov + n_unc > 0:
+    print("async_fifo mutation kill-rate: %d/%d = %.1f%%" % (n_cov, n_cov + n_unc,
+          100.0 * n_cov / (n_cov + n_unc)))
+if n_unc:
+    print("%d surviving mutant(s) — inspect (coverage gap vs equivalent mutant)." % n_unc)
+
+[test test_fm]
+expect PASS FAIL
+run bash $PRJDIR/test_fm.sh

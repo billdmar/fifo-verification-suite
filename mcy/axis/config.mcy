@@ -1,0 +1,42 @@
+[options]
+size 60
+tags COVERED UNCOVERED
+
+[script]
+# Read WITH -DFORMAL so the inlined AXI4-Stream properties are part of the
+# elaborated design mcy mutates — for inlined-property modules the assertions must
+# travel with the mutated logic (unlike sync_fifo, whose properties live in a
+# separate module re-read by test_fm). mcy mutates design logic cells; the few
+# assertion-cell mutations are inert/equivalent (they don't weaken the metric).
+read -formal -DFORMAL ../../rtl/sync_fifo.sv
+read -formal -DFORMAL ../../rtl/axis_fifo.sv
+chparam -set DEPTH 8 axis_fifo
+prep -top axis_fifo
+
+[files]
+test_fm.sby
+
+[logic]
+# A mutant of axis_fifo is COVERED (killed) iff its inlined AXI4-Stream protocol
+# properties FAIL on the mutated wrapper. sync_fifo is read unmutated (mcy mutates
+# only the top module, axis_fifo — the skid/handshake logic).
+fm = result("test_fm")
+if fm == "FAIL":
+    tag("COVERED")
+elif fm == "PASS":
+    tag("UNCOVERED")
+else:
+    tag("UNCOVERED")
+
+[report]
+n_cov = tags("COVERED")
+n_unc = tags("UNCOVERED")
+if n_cov + n_unc > 0:
+    print("axis_fifo mutation kill-rate: %d/%d = %.1f%%" % (n_cov, n_cov + n_unc,
+          100.0 * n_cov / (n_cov + n_unc)))
+if n_unc:
+    print("%d surviving mutant(s) — inspect (coverage gap vs equivalent mutant)." % n_unc)
+
+[test test_fm]
+expect PASS FAIL
+run bash $PRJDIR/test_fm.sh
