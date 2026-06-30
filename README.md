@@ -8,7 +8,7 @@
 [![Formal](https://img.shields.io/badge/Formal-SymbiYosys-blue?style=for-the-badge)]()
 [![Sim](https://img.shields.io/badge/Sim-Verilator-green?style=for-the-badge)]()
 [![BMC](https://img.shields.io/badge/BMC-all_assertions_PASS-brightgreen?style=for-the-badge)]()
-[![CDC](https://img.shields.io/badge/CDC-async_FIFO_proven-blueviolet?style=for-the-badge)]()
+[![CDC](https://img.shields.io/badge/CDC-async_FIFO_BMC--proven-blueviolet?style=for-the-badge)]()
 [![Coverage](https://img.shields.io/badge/Functional_coverage-10%2F10_bins-brightgreen?style=for-the-badge)]()
 [![AXI4-Stream](https://img.shields.io/badge/AXI4--Stream-protocol_proven-red?style=for-the-badge)]()
 [![FPGA](https://img.shields.io/badge/FPGA-ECP5_%2B_iCE40_real_P%26R-informational?style=for-the-badge)]()

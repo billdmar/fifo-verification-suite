@@ -283,5 +283,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mcy-mutation-db
-          path: mcy/database/
+          path: mcy/sync/database/
           if-no-files-found: warn
