@@ -7,6 +7,15 @@ multiclock on
 smtbmc yices
 
 [script]
+# INFORMATIONAL (continue-on-error in CI): basecase passes, the induction step
+# does NOT close. NO -DFORMAL_DATA here (the $anyconst data tracker, GROUP 8, is
+# guarded out so it can't be the blocker). The step still fails on a_wgray_one_bit
+# because, under the gated-multiclock model, an arbitrary inductive start state
+# admits a $past(wgray) that is not a valid gray encoding of $past(wbin) — and
+# pinning that across the synchronizer-chain + relative-clock-phase state is the
+# research-hard CDC barrier (see docs/proven_vs_tested.md). A round-4 time-boxed
+# attempt with per-domain encoding+monotonicity aux invariants did not close it;
+# the honest status remains BMC-PROVEN + cover, k-induction informational.
 read -formal -DFORMAL async_fifo.sv
 read -formal -DFORMAL async_fifo_formal_tb.sv
 prep -top async_fifo_formal_tb
