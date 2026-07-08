@@ -299,17 +299,33 @@ formal-ecc: formal-ecc-bmc formal-ecc-cover formal-ecc-prove
 ## formal       : Run all sync + async + AXI + FWFT + width + converter + packet + ECC formal gates
 formal: formal-bmc formal-prove formal-cover formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc
 
+################################################################################
+# Verilator simulation helpers — DRY pattern for sim + fault-injection targets
+#
+# verilator_sim: Build and run a Verilator simulation.
+#   $(1) = obj_dir   $(2) = top module   $(3) = source files
+#   $(4) = generics (-G flags)           $(5) = CFLAGS content
+#   $(6) = output binary name
+#
+# verilator_fault: Build with -DINJECT_FAULT; PASS only if checker fires.
+#   $(1)-(6) same as above   $(7) = design label for pass/fail messages (empty OK)
+################################################################################
+define verilator_sim
+rm -rf $(1)
+$(ENV) verilator --cc --exe --build -Wall --trace $(4) --top-module $(2) $(3) -CFLAGS "$(5)" -Mdir $(1) -o $(6)
+./$(1)/$(6)
+endef
+
+define verilator_fault
+rm -rf $(1)
+$(ENV) verilator --cc --exe --build -Wall --trace $(4) --top-module $(2) $(3) -CFLAGS "$(5) -DINJECT_FAULT" -Mdir $(1) -o $(6)
+@if ./$(1)/$(6); then echo "ERROR: fault was NOT caught — $(if $(7),$(7) ,)scoreboard is vacuous!"; exit 1; else echo "PASS: fault correctly caught by $(if $(7),$(7) ,)scoreboard."; fi
+endef
+
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
 sim:
-	rm -rf obj_dir
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
-	  --top-module sync_fifo \
-	  $(RTL_TOP) $(TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH)" \
-	  -o sim_fifo
-	./obj_dir/sim_fifo
+	$(call verilator_sim,obj_dir,sync_fifo,$(RTL_TOP) $(TB_SRC),-GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH),-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH),sim_fifo)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-sweep    : Run sim at each depth in DEPTHS ($(DEPTHS))
@@ -332,19 +348,7 @@ sim-width-sweep:
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-fault    : Inject fault via INJECT_FAULT; SUCCEEDS only if checker catches it
 sim-fault:
-	rm -rf obj_dir
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) \
-	  --top-module sync_fifo \
-	  $(RTL_TOP) $(TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DINJECT_FAULT" \
-	  -o sim_fifo
-	@if ./obj_dir/sim_fifo; then \
-	  echo "ERROR: fault was NOT caught — scoreboard is vacuous!"; \
-	  exit 1; \
-	else \
-	  echo "PASS: fault correctly caught by scoreboard."; \
-	fi
+	$(call verilator_fault,obj_dir,sync_fifo,$(RTL_TOP) $(TB_SRC),-GDEPTH=$(DEPTH),-DDEPTH_PARAM=$(DEPTH),sim_fifo,)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-cocotb   : Python (cocotb) testbench on sync_fifo via Verilator (DEPTH/DATA_WIDTH)
@@ -364,101 +368,37 @@ sim-cocotb-fault:
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-fwft     : Build + run the FWFT (show-ahead) FIFO TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH)
 sim-fwft:
-	rm -rf obj_dir_fwft
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
-	  --top-module sync_fifo_fwft \
-	  $(FWFT_TOP) $(FWFT_TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH)" \
-	  -Mdir obj_dir_fwft -o sim_fwft
-	./obj_dir_fwft/sim_fwft
+	$(call verilator_sim,obj_dir_fwft,sync_fifo_fwft,$(FWFT_TOP) $(FWFT_TB_SRC),-GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH),-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH),sim_fwft)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-fwft-fault : FWFT anti-vacuity — SUCCEEDS only if the checker catches an injected fault
 sim-fwft-fault:
-	rm -rf obj_dir_fwft
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
-	  --top-module sync_fifo_fwft \
-	  $(FWFT_TOP) $(FWFT_TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH) -DINJECT_FAULT" \
-	  -Mdir obj_dir_fwft -o sim_fwft
-	@if ./obj_dir_fwft/sim_fwft; then \
-	  echo "ERROR: fault was NOT caught — FWFT scoreboard is vacuous!"; \
-	  exit 1; \
-	else \
-	  echo "PASS: fault correctly caught by FWFT scoreboard."; \
-	fi
+	$(call verilator_fault,obj_dir_fwft,sync_fifo_fwft,$(FWFT_TOP) $(FWFT_TB_SRC),-GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH),-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH),sim_fwft,FWFT)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-pktfifo  : Build + run the store-and-forward packet FIFO TB
 sim-pktfifo:
-	rm -rf obj_dir_pktfifo
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
-	  --top-module axis_pkt_fifo \
-	  $(PKTFIFO_TOP) $(PKTFIFO_TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH)" \
-	  -Mdir obj_dir_pktfifo -o sim_pktfifo
-	./obj_dir_pktfifo/sim_pktfifo
+	$(call verilator_sim,obj_dir_pktfifo,axis_pkt_fifo,$(PKTFIFO_TOP) $(PKTFIFO_TB_SRC),-GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH),-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH),sim_pktfifo)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-pktfifo-fault : packet-FIFO anti-vacuity — SUCCEEDS only if the checker catches an injected fault
 sim-pktfifo-fault:
-	rm -rf obj_dir_pktfifo
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH) \
-	  --top-module axis_pkt_fifo \
-	  $(PKTFIFO_TOP) $(PKTFIFO_TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH) -DINJECT_FAULT" \
-	  -Mdir obj_dir_pktfifo -o sim_pktfifo
-	@if ./obj_dir_pktfifo/sim_pktfifo; then \
-	  echo "ERROR: fault was NOT caught — packet-FIFO scoreboard is vacuous!"; \
-	  exit 1; \
-	else \
-	  echo "PASS: fault correctly caught by packet-FIFO scoreboard."; \
-	fi
+	$(call verilator_fault,obj_dir_pktfifo,axis_pkt_fifo,$(PKTFIFO_TOP) $(PKTFIFO_TB_SRC),-GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH),-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH),sim_pktfifo,packet-FIFO)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-ecc      : Build + run the SECDED ECC FIFO TB (clean-path round-trip + flag quiescence)
 sim-ecc:
-	rm -rf obj_dir_ecc
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) \
-	  --top-module sync_fifo_ecc \
-	  $(ECC_TOP) $(ECC_TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH)" \
-	  -Mdir obj_dir_ecc -o sim_ecc
-	./obj_dir_ecc/sim_ecc
+	$(call verilator_sim,obj_dir_ecc,sync_fifo_ecc,$(ECC_TOP) $(ECC_TB_SRC),-GDEPTH=$(DEPTH),-DDEPTH_PARAM=$(DEPTH),sim_ecc)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-ecc-fault : ECC FIFO anti-vacuity — SUCCEEDS only if the checker catches an injected fault
 sim-ecc-fault:
-	rm -rf obj_dir_ecc
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GDEPTH=$(DEPTH) \
-	  --top-module sync_fifo_ecc \
-	  $(ECC_TOP) $(ECC_TB_SRC) \
-	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH) -DINJECT_FAULT" \
-	  -Mdir obj_dir_ecc -o sim_ecc
-	@if ./obj_dir_ecc/sim_ecc; then \
-	  echo "ERROR: fault was NOT caught — ECC scoreboard is vacuous!"; \
-	  exit 1; \
-	else \
-	  echo "PASS: fault correctly caught by ECC scoreboard."; \
-	fi
+	$(call verilator_fault,obj_dir_ecc,sync_fifo_ecc,$(ECC_TOP) $(ECC_TB_SRC),-GDEPTH=$(DEPTH),-DDEPTH_PARAM=$(DEPTH),sim_ecc,ECC)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-width-fifo : Build + run the asymmetric-width FIFO TB (WR_WIDTH/RD_WIDTH/DEPTH_NARROW/SUB_WORD_BIG)
 sim-width-fifo:
-	rm -rf obj_dir_width
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GWR_WIDTH=$(WR_WIDTH) -GRD_WIDTH=$(RD_WIDTH) -GDEPTH_NARROW=$(DEPTH_NARROW) -GSUB_WORD_BIG=$(SUB_WORD_BIG) \
-	  --top-module sync_fifo_width \
-	  $(WIDTH_TOP) $(WIDTH_TB_SRC) \
-	  -CFLAGS "-DWR_WIDTH_PARAM=$(WR_WIDTH) -DRD_WIDTH_PARAM=$(RD_WIDTH) -DDEPTH_NARROW_PARAM=$(DEPTH_NARROW) -DSUB_WORD_BIG=$(SUB_WORD_BIG)" \
-	  -Mdir obj_dir_width -o sim_width
-	./obj_dir_width/sim_width
+	$(call verilator_sim,obj_dir_width,sync_fifo_width,$(WIDTH_TOP) $(WIDTH_TB_SRC),-GWR_WIDTH=$(WR_WIDTH) -GRD_WIDTH=$(RD_WIDTH) -GDEPTH_NARROW=$(DEPTH_NARROW) -GSUB_WORD_BIG=$(SUB_WORD_BIG),-DWR_WIDTH_PARAM=$(WR_WIDTH) -DRD_WIDTH_PARAM=$(RD_WIDTH) -DDEPTH_NARROW_PARAM=$(DEPTH_NARROW) -DSUB_WORD_BIG=$(SUB_WORD_BIG),sim_width)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-width-fifo-sweep : Run the width FIFO TB across both directions, ratios, and endianness
@@ -473,19 +413,7 @@ sim-width-fifo-sweep:
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-width-fifo-fault : width FIFO anti-vacuity — SUCCEEDS only if the checker catches an injected fault
 sim-width-fifo-fault:
-	rm -rf obj_dir_width
-	$(ENV) verilator --cc --exe --build -Wall --trace \
-	  -GWR_WIDTH=$(WR_WIDTH) -GRD_WIDTH=$(RD_WIDTH) -GDEPTH_NARROW=$(DEPTH_NARROW) -GSUB_WORD_BIG=$(SUB_WORD_BIG) \
-	  --top-module sync_fifo_width \
-	  $(WIDTH_TOP) $(WIDTH_TB_SRC) \
-	  -CFLAGS "-DWR_WIDTH_PARAM=$(WR_WIDTH) -DRD_WIDTH_PARAM=$(RD_WIDTH) -DDEPTH_NARROW_PARAM=$(DEPTH_NARROW) -DSUB_WORD_BIG=$(SUB_WORD_BIG) -DINJECT_FAULT" \
-	  -Mdir obj_dir_width -o sim_width
-	@if ./obj_dir_width/sim_width; then \
-	  echo "ERROR: fault was NOT caught — width-FIFO scoreboard is vacuous!"; \
-	  exit 1; \
-	else \
-	  echo "PASS: fault correctly caught by width-FIFO scoreboard."; \
-	fi
+	$(call verilator_fault,obj_dir_width,sync_fifo_width,$(WIDTH_TOP) $(WIDTH_TB_SRC),-GWR_WIDTH=$(WR_WIDTH) -GRD_WIDTH=$(RD_WIDTH) -GDEPTH_NARROW=$(DEPTH_NARROW) -GSUB_WORD_BIG=$(SUB_WORD_BIG),-DWR_WIDTH_PARAM=$(WR_WIDTH) -DRD_WIDTH_PARAM=$(RD_WIDTH) -DDEPTH_NARROW_PARAM=$(DEPTH_NARROW) -DSUB_WORD_BIG=$(SUB_WORD_BIG),sim_width,width-FIFO)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim-coverage : Build with --coverage, run TB, post-process coverage.dat
