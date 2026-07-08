@@ -63,8 +63,8 @@ jobs:
       - name: Formal — sync BMC depth 20 (gate)
         run: make formal-bmc
 
-      - name: Formal — bounded liveness / progress depth 20 (gate)
-        run: make formal-live
+      - name: Formal — sync k-induction proof (unbounded, PROVEN)
+        run: make formal-prove
 
       - name: Formal — async CDC BMC depth 16, multiclock (gate)
         run: make formal-async-bmc

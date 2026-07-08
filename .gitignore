@@ -38,5 +38,9 @@ mcy/**/mutate.log
 mcy/**/mutate.ys
 mcy/**/mutated.*
 
+# Development tooling (local only)
+HANDOFF.md
+.claude/
+
 # macOS
 .DS_Store

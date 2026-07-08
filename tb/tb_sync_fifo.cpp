@@ -967,7 +967,6 @@ int main(int argc, char **argv) {
     dut->wr_data = 0;
     dut->eval();
 
-    // Run all 7 tests
     test_reset();
     test_sequential_fill();
     test_sequential_drain();
@@ -975,8 +974,6 @@ int main(int argc, char **argv) {
     test_thresholds();
     test_depth_behavior();
     test_backtoback();
-
-    // Extended corner-case + long constrained-random tests (Wave A coverage).
     test_single_entry_oscillation();
     test_full_boundary_stress();
     test_empty_boundary_stress();

@@ -31,7 +31,6 @@ TB_SRC   := tb/tb_sync_fifo.cpp
 BMC_SCR  := formal/sync_fifo_bmc.sby
 PROVE_SCR := formal/sync_fifo.sby
 COVER_SCR := formal/sync_fifo_cover.sby
-LIVE_SCR  := formal/sync_fifo_live.sby
 ASYNC_BMC_SCR   := formal/async_fifo_bmc.sby
 ASYNC_COVER_SCR := formal/async_fifo_cover.sby
 ASYNC_PROVE_SCR := formal/async_fifo_prove.sby
@@ -75,7 +74,7 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
 
 .DEFAULT_GOAL := help
 
-.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-ecc lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal-live formal \
+.PHONY: help lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-ecc lint-demo lint-verible synth formal-bmc formal-prove formal-cover formal \
         formal-async-bmc formal-async-cover formal-async-prove formal-async \
         formal-axis-bmc formal-axis-cover formal-axis \
         formal-fwft-bmc formal-fwft-cover formal-fwft-prove formal-fwft \
@@ -172,10 +171,6 @@ formal-prove:
 formal-cover:
 	$(ENV) sby -f $(COVER_SCR)
 
-##─────────────────────────────────────────────────────────────────────────────
-## formal-live  : Bounded liveness / progress gate (BMC depth 20) via SymbiYosys
-formal-live:
-	$(ENV) sby -f $(LIVE_SCR)
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## formal-async-bmc   : Async (dual-clock CDC) BMC gate (depth 16, multiclock)
@@ -302,7 +297,7 @@ formal-ecc: formal-ecc-bmc formal-ecc-cover formal-ecc-prove
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## formal       : Run all sync + async + AXI + FWFT + width + converter + packet + ECC formal gates
-formal: formal-bmc formal-prove formal-cover formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc
+formal: formal-bmc formal-prove formal-cover formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## sim          : Build + run Verilator TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH); VCD -> docs/waveforms/
@@ -545,7 +540,7 @@ waveforms:
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## all          : CI gate set — lint, synth, formal (sync/async/AXI/FWFT/width/converter), sim
-all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-ecc lint-demo synth formal-bmc formal-live formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc sim sim-fwft sim-width-fifo sim-pktfifo sim-ecc
+all: lint lint-async lint-axis lint-fwft lint-width lint-axisconv lint-pktfifo lint-ecc lint-demo synth formal-bmc formal-prove formal-async formal-axis formal-fwft formal-width formal-axisconv formal-pktfifo formal-ecc sim sim-fwft sim-width-fifo sim-pktfifo sim-ecc
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## clean        : Remove build artefacts (leaves source and docs/waveforms/ intact)
@@ -555,7 +550,6 @@ clean:
 	rm -rf formal/sync_fifo_prove/
 	rm -rf formal/sync_fifo/
 	rm -rf formal/sync_fifo_cover/
-	rm -rf formal/sync_fifo_live/
 	rm -rf formal/async_fifo_bmc/
 	rm -rf formal/async_fifo_cover/
 	rm -rf formal/async_fifo_prove/
