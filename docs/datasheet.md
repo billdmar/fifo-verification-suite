@@ -1,6 +1,6 @@
 # FIFO Suite — Datasheet
 
-Compact reference for the four verified FIFO designs. Full prose, waveforms, and
+Compact reference for the eight verified FIFO designs. Full prose, waveforms, and
 the verification narrative live in the [README](../README.md); this page is the
 at-a-glance signal/parameter/performance summary.
 
