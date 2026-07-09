@@ -83,9 +83,10 @@ VERIBLE_RTL := rtl/sync_fifo.sv rtl/sync_fifo_properties.sv rtl/async_fifo.sv rt
         formal-pktfifo-bmc formal-pktfifo-cover formal-pktfifo \
         formal-ecc-bmc formal-ecc-cover formal-ecc-prove formal-ecc \
         sim sim-sweep sim-width-sweep sim-fault sim-cocotb sim-cocotb-fault \
+        sim-cocotb-async \
         sim-fwft sim-fwft-fault sim-width-fifo sim-width-fifo-sweep sim-width-fifo-fault \
         sim-pktfifo sim-pktfifo-fault sim-ecc sim-ecc-fault \
-        sim-coverage fpga-report bitstream mutate mutate-async mutate-axis perf-report waveforms all clean
+        sim-coverage fpga-report bitstream mutate mutate-async mutate-axis perf-report perf-report-fwft perf-report-ecc waveforms all clean
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## help         : Show this help message (default target)
@@ -366,6 +367,12 @@ sim-cocotb-fault:
 	  python3 tb_sync_fifo_cocotb.py
 
 ##─────────────────────────────────────────────────────────────────────────────
+## sim-cocotb-async : cocotb (Python) testbench on async_fifo via Verilator (DEPTH/DATA_WIDTH)
+sim-cocotb-async:
+	$(ENV) cd tb && FIFO_DEPTH=$(DEPTH) FIFO_DATA_WIDTH=$(DATA_WIDTH) \
+	  python3 tb_async_fifo_cocotb.py
+
+##─────────────────────────────────────────────────────────────────────────────
 ## sim-fwft     : Build + run the FWFT (show-ahead) FIFO TB at DEPTH=$(DEPTH) DATA_WIDTH=$(DATA_WIDTH)
 sim-fwft:
 	$(call verilator_sim,obj_dir_fwft,sync_fifo_fwft,$(FWFT_TOP) $(FWFT_TB_SRC),-GDEPTH=$(DEPTH) -GDATA_WIDTH=$(DATA_WIDTH),-DDEPTH_PARAM=$(DEPTH) -DDW_PARAM=$(DATA_WIDTH),sim_fwft)
@@ -457,9 +464,31 @@ mutate-axis:
 MCY_JOBS ?= 4
 
 ##─────────────────────────────────────────────────────────────────────────────
-## perf-report  : Cycle-accurate throughput/latency characterization for sync_fifo
+## perf-report  : Cycle-accurate throughput/latency characterization for all FIFO variants
 perf-report:
 	./scripts/perf_report.sh
+
+##─────────────────────────────────────────────────────────────────────────────
+## perf-report-fwft : Throughput/latency characterization for sync_fifo_fwft (FWFT/show-ahead)
+perf-report-fwft:
+	@rm -rf obj_dir_perf_fwft
+	$(ENV) verilator --cc --exe --build -Wall \
+	  -GDEPTH=$(DEPTH) --top-module sync_fifo_fwft \
+	  $(FWFT_TOP) tb/perf_sync_fifo_fwft.cpp \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH)" \
+	  -Mdir obj_dir_perf_fwft -o perf_fwft
+	./obj_dir_perf_fwft/perf_fwft
+
+##─────────────────────────────────────────────────────────────────────────────
+## perf-report-ecc  : Throughput/latency characterization for sync_fifo_ecc (SECDED ECC)
+perf-report-ecc:
+	@rm -rf obj_dir_perf_ecc
+	$(ENV) verilator --cc --exe --build -Wall \
+	  -GDEPTH=$(DEPTH) --top-module sync_fifo_ecc \
+	  $(ECC_TOP) tb/perf_sync_fifo_ecc.cpp \
+	  -CFLAGS "-DDEPTH_PARAM=$(DEPTH)" \
+	  -Mdir obj_dir_perf_ecc -o perf_ecc
+	./obj_dir_perf_ecc/perf_ecc
 
 ##─────────────────────────────────────────────────────────────────────────────
 ## waveforms    : Regenerate docs/waveforms/*.svg from the sim VCD (needs `make sim`)
@@ -498,6 +527,8 @@ clean:
 	rm -rf formal/sync_fifo_ecc_cover/
 	rm -rf formal/sync_fifo_ecc_prove/
 	rm -rf obj_dir_ecc/
+	rm -rf obj_dir_perf_fwft/
+	rm -rf obj_dir_perf_ecc/
 	rm -rf logs_annotated/
 	rm -rf tb/sim_build/ tb/__pycache__/ tb/lib tb/results.xml
 	rm -f  *.vcd

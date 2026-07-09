@@ -148,6 +148,9 @@ jobs:
       - name: Self-test — cocotb fault injection must be caught (gate)
         run: make sim-cocotb-fault
 
+      - name: Simulate — cocotb async (dual-clock CDC) FIFO testbench (gate)
+        run: make sim-cocotb-async
+
       - name: Simulate — FWFT (show-ahead) FIFO TB (gate)
         run: make sim-fwft
 
