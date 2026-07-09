@@ -12,9 +12,9 @@ Eight parameterized FIFO designs — synchronous, asynchronous CDC, AXI4-Stream,
 
 | Design | Description | Formal | Sim |
 |--------|-------------|--------|-----|
-| `sync_fifo` | Single-clock, extra-MSB dual-pointer, registered read | BMC d=20 + k-induction **PROVEN** | 13 tests + 120k random cycles |
+| `sync_fifo` | Single-clock, extra-MSB dual-pointer, registered read | BMC d=20 + k-induction **PROVEN** | 13 tests + 120k cycles + cocotb |
 | `sync_fifo_fwft` | Same core, zero-latency show-ahead read | BMC d=20 + k-induction **PROVEN** | C++ scoreboard |
-| `async_fifo` | Dual-clock CDC, Gray-code + multi-flop synchronizers | Multi-clock BMC d=16 | cocotb + C++ |
+| `async_fifo` | Dual-clock CDC, Gray-code + multi-flop synchronizers | Multi-clock BMC d=16 | C++ scoreboard |
 | `axis_fifo` | AXI4-Stream wrapper with output skid register | BMC d=20, protocol compliance | — |
 | `sync_fifo_width` | Asymmetric-width (WR ≠ RD), both directions | BMC d=14, up + down | C++ golden pack/unpack |
 | `axis_width_conv` | AXI4-Stream width converter on `sync_fifo_width` | BMC d=14 | — |
@@ -22,6 +22,21 @@ Eight parameterized FIFO designs — synchronous, asynchronous CDC, AXI4-Stream,
 | `sync_fifo_ecc` | SECDED fault-tolerant (13,8 Hamming) | Correct/detect proven over **every** error position | C++ + fault injection |
 
 All designs: parameterizable `DATA_WIDTH` (1–64) and `DEPTH` (4–1024, power of 2). Cover witnesses, fault-injection anti-vacuity tests, and 100% Verilator structural coverage close the verification loop.
+
+### Verification at a glance
+
+| Design | Formal | k-induction | Sim | Mutation | Covers |
+|--------|--------|-------------|-----|----------|--------|
+| `sync_fifo` | BMC d=20 | **PROVEN** | 13 tests + 120k cycles | 92% kill | 10 |
+| `sync_fifo_fwft` | BMC d=20 | **PROVEN** | C++ scoreboard | — | 4 |
+| `async_fifo` | BMC d=16 (multiclk) | info (step open) | C++ scoreboard | exploratory | 4 |
+| `axis_fifo` | BMC d=20 | — | — | exploratory | 4 |
+| `sync_fifo_width` | BMC d=14 (both dirs) | — | C++ golden pack/unpack | — | 4+ |
+| `axis_width_conv` | BMC d=14 | — | — | — | 2 |
+| `axis_pkt_fifo` | BMC d=14 | — | C++ scoreboard | — | 2 |
+| `sync_fifo_ecc` | BMC d=16 (exhaustive) | **PROVEN** | C++ + fault inject | — | 4 |
+
+Full per-property breakdown: [docs/verification_matrix.md](docs/verification_matrix.md)
 
 ---
 
