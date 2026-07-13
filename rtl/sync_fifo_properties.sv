@@ -245,6 +245,17 @@ module sync_fifo_properties #(
     end
 
     // Check rd_data one cycle after the read of the tracked slot.
+    //
+    // NB: the $anyconst-tracker data/no-loss properties (a_data_integrity,
+    // a_no_duplicate_read, a_no_read_before_write) pass BMC but their
+    // k-induction STEP does not close — the tracker cannot be tied to the DUT's
+    // internal mem[] by hierarchical reference on the open-source Yosys frontend,
+    // so the inductive hypothesis admits states where tracker and mem[] disagree
+    // (see docs/proven_vs_tested.md). They are therefore excluded from the
+    // `mode prove` k-induction gate via `PROVE_KIND` (defined only by the prove
+    // script), which k-inducts exactly the pointer/count/flag invariants the
+    // docs report as PROVEN. BMC (formal-bmc) still checks all of them.
+`ifndef PROVE_KIND
     always @(posedge clk) begin
         if (f_past_valid && rst_n && $past(rst_n)) begin
             if (f_read_of_tracked_happened) begin
@@ -252,6 +263,7 @@ module sync_fifo_properties #(
             end
         end
     end
+`endif
 
     // =========================================================================
     // GROUP 7b — NO-LOSS / NO-DUPLICATION (read-once, in order).
@@ -301,6 +313,7 @@ module sync_fifo_properties #(
         end
     end
 
+`ifndef PROVE_KIND
     always @(posedge clk) begin
         if (rst_n) begin
             // No duplication: never read the tracked slot unless it currently
@@ -311,6 +324,7 @@ module sync_fifo_properties #(
             end
         end
     end
+`endif
 
     // =========================================================================
     // GROUP 8 — Cover points.
