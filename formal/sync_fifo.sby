@@ -6,9 +6,14 @@ depth 15
 smtbmc yices
 
 [script]
-read -formal -DFORMAL sync_fifo.sv
-read -formal -DFORMAL sync_fifo_properties.sv
-read -formal -DFORMAL sync_fifo_formal_tb.sv
+# PROVE_KIND excludes the $anyconst-tracker data/no-loss properties whose
+# k-induction STEP cannot close on the open-source Yosys frontend (the tracker
+# can't bind to the DUT's internal mem[]). Those stay BMC-gated in
+# formal/sync_fifo_bmc.sby; this script k-inducts the pointer/count/flag
+# invariants the docs report as PROVEN (unbounded). See docs/proven_vs_tested.md.
+read -formal -DFORMAL -DPROVE_KIND sync_fifo.sv
+read -formal -DFORMAL -DPROVE_KIND sync_fifo_properties.sv
+read -formal -DFORMAL -DPROVE_KIND sync_fifo_formal_tb.sv
 prep -top sync_fifo_formal_tb
 
 [files]
