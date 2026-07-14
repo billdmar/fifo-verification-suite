@@ -45,7 +45,7 @@ from collections import deque
 
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import RisingEdge, Combine, First, Timer
+from cocotb.triggers import RisingEdge, Timer
 
 # DEPTH / DATA_WIDTH are baked into the DUT at build time; the test reads the
 # same values from the environment so the golden model and stimulus agree.
@@ -162,6 +162,59 @@ async def tick_both(dut, sb: Scoreboard, ctx: str, n: int = 1):
         await RisingEdge(dut.rd_clk)
 
 
+# Concurrent cross-domain driving WITHOUT two clock-blocked coroutines.
+#
+#   Blocking two coroutines on two independent clocks (Combine of writer/reader
+#   each awaiting a different RisingEdge) is a cocotb+Verilator performance cliff:
+#   the simulator services a Python callback at every edge of BOTH coprime clocks
+#   and the run never finishes in CI (it hits the 6h job timeout). Instead we do
+#   NOT run cocotb-managed Clock coroutines for these tests; we advance simulated
+#   time ourselves in fixed steps and drive each domain exactly on its own rising
+#   edge, detected from the clock signal we toggle. One coroutine, one time
+#   axis — fast and deterministic, still genuinely concurrent cross-domain.
+async def _run_concurrent(dut, sb, on_wr_edge, on_rd_edge, done, ctx):
+    """Drive both domains on a single shared time axis.
+
+    on_wr_edge(edge_idx) / on_rd_edge(edge_idx): callbacks invoked BEFORE each
+    respective rising edge to set inputs + sample the golden model. `done()`
+    returns True when the test has driven enough traffic. Half-period stepping
+    keeps the two clocks phase-correct relative to each other.
+    """
+    STEP = 1  # ns granularity for edge scheduling
+    t = 0
+    wr_half = WR_CLK_PERIOD // 2
+    rd_half = RD_CLK_PERIOD // 2
+    next_wr = wr_half  # first wr rising edge
+    next_rd = rd_half  # first rd rising edge
+    dut.wr_clk.value = 0
+    dut.rd_clk.value = 0
+    wr_idx = 0
+    rd_idx = 0
+    # Bound the loop so a logic slip can never hang CI.
+    max_time = (WR_CLK_PERIOD + RD_CLK_PERIOD) * 4000
+    while not done() and t < max_time:
+        t += STEP
+        await Timer(STEP, unit="ns")
+        # Write-domain rising edge.
+        if t >= next_wr:
+            on_wr_edge(wr_idx)          # set inputs + sample pre-edge
+            dut.wr_clk.value = 1
+            await Timer(1, unit="step")  # let the edge take effect (delta cycle)
+            sb.check_bounds(ctx + "_wr")
+            dut.wr_clk.value = 0
+            wr_idx += 1
+            next_wr += WR_CLK_PERIOD
+        # Read-domain rising edge.
+        if t >= next_rd:
+            on_rd_edge(rd_idx)          # set inputs + sample pre-edge
+            dut.rd_clk.value = 1
+            await Timer(1, unit="step")  # let the edge take effect (delta cycle)
+            sb.check_read_data(ctx + "_rd")
+            dut.rd_clk.value = 0
+            rd_idx += 1
+            next_rd += RD_CLK_PERIOD
+
+
 async def settle(dut, cycles: int = None):
     """Wait enough cycles for CDC synchronizers to propagate.
     Waits SYNC_STAGES+1 edges on BOTH clocks to ensure flags are settled."""
@@ -190,17 +243,55 @@ async def reset(dut, sb: Scoreboard, cycles: int = 4):
     await settle(dut)
 
 
-async def _start(dut):
-    """Common bring-up: start both clocks and return a fresh scoreboard."""
-    cocotb.start_soon(Clock(dut.wr_clk, WR_CLK_PERIOD, unit="ns").start())
-    cocotb.start_soon(Clock(dut.rd_clk, RD_CLK_PERIOD, unit="ns").start())
+async def _start(dut, run_clocks: bool = True):
+    """Common bring-up: optionally start both clocks and return a fresh scoreboard.
+
+    run_clocks=True (default): cocotb drives wr_clk/rd_clk as free-running Clock
+    coroutines — used by the single-domain tests that await RisingEdge.
+    run_clocks=False: leave the clocks for the caller to toggle on a shared time
+    axis (see _run_concurrent) — used by the concurrent/stress tests to avoid the
+    dual-blocking-coroutine performance cliff.
+    """
+    if run_clocks:
+        cocotb.start_soon(Clock(dut.wr_clk, WR_CLK_PERIOD, unit="ns").start())
+        cocotb.start_soon(Clock(dut.rd_clk, RD_CLK_PERIOD, unit="ns").start())
     dut.wr_rst_n.value = 0
     dut.rd_rst_n.value = 0
     drive_write(dut, 0, 0)
     drive_read(dut, 0)
     sb = Scoreboard(dut)
-    await reset(dut, sb)
+    if run_clocks:
+        await reset(dut, sb)
+    else:
+        await _reset_manual(dut, sb)
     return sb
+
+
+async def _reset_manual(dut, sb: Scoreboard, cycles: int = 6):
+    """Reset both domains by toggling the clocks manually (no Clock coroutine)."""
+    dut.wr_rst_n.value = 0
+    dut.rd_rst_n.value = 0
+    dut.wr_clk.value = 0
+    dut.rd_clk.value = 0
+    drive_write(dut, 0, 0)
+    drive_read(dut, 0)
+    sb.reset()
+    for _ in range(cycles):
+        dut.wr_clk.value = 1
+        dut.rd_clk.value = 1
+        await Timer(WR_CLK_PERIOD, unit="ns")
+        dut.wr_clk.value = 0
+        dut.rd_clk.value = 0
+        await Timer(WR_CLK_PERIOD, unit="ns")
+    dut.wr_rst_n.value = 1
+    dut.rd_rst_n.value = 1
+    for _ in range(cycles):
+        dut.wr_clk.value = 1
+        dut.rd_clk.value = 1
+        await Timer(WR_CLK_PERIOD, unit="ns")
+        dut.wr_clk.value = 0
+        dut.rd_clk.value = 0
+        await Timer(WR_CLK_PERIOD, unit="ns")
 
 
 # -----------------------------------------------------------------------------
@@ -258,48 +349,40 @@ async def test_fill_drain(dut):
 # -----------------------------------------------------------------------------
 @cocotb.test()
 async def test_concurrent_rw(dut):
-    sb = await _start(dut)
+    sb = await _start(dut, run_clocks=False)
 
-    total_written = 0
-    total_read = 0
     target_words = DEPTH * 4  # push 4x capacity through the FIFO
+    state = {"written": 0, "read": 0, "val": 1}
 
-    async def writer():
-        nonlocal total_written
-        val = 1
-        while total_written < target_words:
+    def on_wr_edge(_idx):
+        # Full-rate writer; the DUT drops writes while full, so does the model.
+        if state["written"] < target_words:
             full_now = bool(int(dut.full.value))
+            drive_write(dut, 1, state["val"] & DATA_MASK)
+            sb.sample_write(full_now)
             if not full_now:
-                drive_write(dut, 1, val & DATA_MASK)
-                sb.sample_write(full_now)
-                val += 1
-                total_written += 1
-            else:
-                drive_write(dut, 0, 0)
-            await RisingEdge(dut.wr_clk)
-            sb.check_bounds("conc_wr")
-        drive_write(dut, 0, 0)
+                state["val"] += 1
+                state["written"] += 1
+        else:
+            drive_write(dut, 0, 0)
 
-    async def reader():
-        nonlocal total_read
-        cycle = 0
-        while total_read < target_words:
+    def on_rd_edge(idx):
+        # Read every other rd edge to create backpressure variation.
+        if state["read"] < target_words and (idx % 2 == 0):
             empty_now = bool(int(dut.empty.value))
-            # Read every other cycle to create backpressure variation.
-            do_rd = (cycle % 2 == 0) and not empty_now
-            if do_rd:
-                drive_read(dut, 1)
-                sb.sample_read(empty_now)
-                total_read += 1
-            else:
-                drive_read(dut, 0)
-            await RisingEdge(dut.rd_clk)
-            sb.check_read_data("conc_rd")
-            cycle += 1
-        drive_read(dut, 0)
+            drive_read(dut, 1)
+            sb.sample_read(empty_now)
+            if not empty_now:
+                state["read"] += 1
+        else:
+            drive_read(dut, 0)
 
-    await Combine(cocotb.start_soon(writer()), cocotb.start_soon(reader()))
-    await settle(dut)
+    await _run_concurrent(
+        dut, sb, on_wr_edge, on_rd_edge,
+        done=lambda: state["read"] >= target_words,
+        ctx="conc",
+    )
+    assert state["read"] >= target_words, "reader did not drain the target words"
     assert sb.errors == 0, f"{sb.errors} scoreboard errors in concurrent R+W"
 
 
@@ -310,43 +393,63 @@ async def test_concurrent_rw(dut):
 # -----------------------------------------------------------------------------
 @cocotb.test()
 async def test_random_stress(dut):
-    sb = await _start(dut)
+    # Independent random wr_en/rd_en in each domain. An async FIFO under
+    # CONCURRENT random traffic cannot be modelled by a single instantaneous
+    # deque — the golden queue would commit a write immediately while the DUT's
+    # read domain only observes it ~SYNC_STAGES clocks later (and vice versa),
+    # so a pop/push deque desyncs within the CDC latency window. The correct,
+    # timing-independent data-integrity check is SEQUENCE-PREFIX: the ordered
+    # sequence of words the DUT delivers must be an in-order prefix of the
+    # sequence it accepted. Plus the hard safety invariant: never full && empty.
+    sb = await _start(dut, run_clocks=False)
     rng = random.Random(0xCDC1)
-    wr_edges = 0
-    rd_edges = 0
-    target_edges = 500
+    target_edges = 800  # combined wr+rd edges of constrained-random traffic
+    state = {"wr": 0, "rd": 0}
+    written: list[int] = []   # words the DUT accepted, in write order
+    read_seq: list[int] = []  # words the DUT delivered, in read order
+    cap = {"pending": False}  # a read was accepted last rd edge (registered out)
 
-    async def rand_writer():
-        nonlocal wr_edges
-        while wr_edges + rd_edges < target_edges:
-            full_now = bool(int(dut.full.value))
-            wen = rng.randint(0, 1)
-            wdata = rng.getrandbits(DATA_WIDTH)
-            drive_write(dut, wen, wdata)
-            if wen and not full_now:
-                sb.sample_write(full_now)
-            await RisingEdge(dut.wr_clk)
-            sb.check_bounds("stress_wr")
-            wr_edges += 1
-        drive_write(dut, 0, 0)
+    def on_wr_edge(_idx):
+        full_now = bool(int(dut.full.value))
+        empty_now = bool(int(dut.empty.value))
+        if full_now and empty_now:
+            dut._log.error("[stress] DUT asserted full && empty simultaneously")
+            sb.errors += 1
+        wen = rng.randint(0, 1)
+        wdata = rng.getrandbits(DATA_WIDTH)
+        drive_write(dut, wen, wdata)
+        if wen and not full_now:
+            written.append(wdata & DATA_MASK)
+        state["wr"] += 1
 
-    async def rand_reader():
-        nonlocal rd_edges
-        while wr_edges + rd_edges < target_edges:
-            empty_now = bool(int(dut.empty.value))
-            ren = rng.randint(0, 1)
-            drive_read(dut, ren)
-            if ren and not empty_now:
-                sb.sample_read(empty_now)
-            await RisingEdge(dut.rd_clk)
-            sb.check_read_data("stress_rd")
-            rd_edges += 1
-        drive_read(dut, 0)
+    def on_rd_edge(_idx):
+        # Registered read: capture the word delivered by the read accepted at the
+        # PREVIOUS rd edge (rd_data is valid one rd_clk after rd_en && !empty).
+        if cap["pending"]:
+            read_seq.append(int(dut.rd_data.value) & DATA_MASK)
+            cap["pending"] = False
+        empty_now = bool(int(dut.empty.value))
+        ren = rng.randint(0, 1)
+        drive_read(dut, ren)
+        cap["pending"] = bool(ren and not empty_now)
+        state["rd"] += 1
 
-    await Combine(cocotb.start_soon(rand_writer()), cocotb.start_soon(rand_reader()))
-    await settle(dut)
-    dut._log.info(f"Random stress complete: {wr_edges} wr_edges + {rd_edges} rd_edges = {wr_edges+rd_edges}")
-    assert wr_edges + rd_edges >= target_edges
+    await _run_concurrent(
+        dut, sb, on_wr_edge, on_rd_edge,
+        done=lambda: state["wr"] + state["rd"] >= target_edges,
+        ctx="stress",
+    )
+    dut._log.info(
+        f"Random stress: {state['wr']} wr + {state['rd']} rd edges; "
+        f"{len(written)} written, {len(read_seq)} read"
+    )
+    assert state["wr"] + state["rd"] >= target_edges
+    # Data integrity: the read sequence is an in-order prefix of the writes.
+    n = len(read_seq)
+    assert read_seq == written[:n], (
+        f"read sequence is not an in-order prefix of writes "
+        f"(first divergence within {n} reads)"
+    )
     assert sb.errors == 0, f"{sb.errors} scoreboard errors in random stress"
 
 
